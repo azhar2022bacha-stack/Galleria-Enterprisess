@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Illustrative HAIR TOOLS demo catalog artwork">
+    <defs>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(252 48% 83%)"/><stop offset=".42" stop-color="hsl(252 63% 62%)"/><stop offset="1" stop-color="hsl(252 53% 39%)"/></linearGradient>
+      <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="hsl(47 24% 24%)"/><stop offset=".55" stop-color="hsl(47 26% 40%)"/><stop offset="1" stop-color="hsl(47 22% 19%)"/></linearGradient>
+      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+    </defs>
+    <ellipse cx="512" cy="865" rx="203" ry="32" fill="#172033" fill-opacity=".15" filter="url(#shadow)"/>
+    <g transform="translate(0 0)">
+    <path d="M398 301q0-30 30-30h74v59h-46q-12 0-12 13v284q0 32-32 32h-14z" fill="url(#cap)"/>
+    <path d="M626 301q0-30-30-30h-74v59h46q12 0 12 13v284q0 32 32 32h14z" fill="url(#body)" stroke="#182230" stroke-opacity=".2" stroke-width="5"/>
+    <rect x="475" y="322" width="74" height="480" rx="31" fill="url(#body)" stroke="#182230" stroke-opacity=".2" stroke-width="5"/>
+    <rect x="492" y="369" width="40" height="335" rx="18" fill="#fff" fill-opacity=".25"/>
+    <circle cx="512" cy="746" r="13" fill="hsl(47 61% 47%)"/><path d="M398 299h76M550 299h76" stroke="hsl(47 61% 47%)" stroke-width="18" stroke-linecap="round"/></g>
+    <text x="512" y="850" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="2" fill="#667085">Essie</text>
+    <text x="512" y="882" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" letter-spacing="1.5" fill="#98a2b3">ILLUSTRATIVE CATALOG ART · 1440</text>
+    <title>Essie Ceramic Hair Dryer — illustrative demo listing</title>
+  </svg>

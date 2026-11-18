@@ -1,0 +1,360 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap');
+
+:root {
+  --website-primary: #14263d;
+  --website-accent: #a77e43;
+}
+
+body [class~="bg-[#14263d]"],
+body [class~="bg-[#0c1b33]"],
+body [class~="bg-[#12243b]"] {
+  background-color: var(--website-primary) !important;
+}
+
+body [class~="text-[#14263d]"],
+body [class~="text-[#0c1b33]"],
+body [class~="text-[#12243b]"] {
+  color: var(--website-primary) !important;
+}
+
+body [class~="border-[#14263d]"] {
+  border-color: var(--website-primary) !important;
+}
+
+body [class~="text-[#a77e43]"],
+body [class~="text-[#b99152]"],
+body [class~="text-[#916d38]"] {
+  color: var(--website-accent) !important;
+}
+
+body [class~="bg-[#a77e43]"],
+body [class~="bg-[#b99152]"] {
+  background-color: var(--website-accent) !important;
+}
+
+body [class~="border-[#a77e43]"],
+body [class~="border-[#b99152]"] {
+  border-color: var(--website-accent) !important;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-navy: #12243b;
+  --secondary-navy: #1c3554;
+  --accent-gold: #b99152;
+  --gold-border: #e5dac4;
+  --bg-ivory: #f8f6f1;
+  --ink: #17283e;
+  --muted: #687586;
+  --line: #e9e5dd;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Playfair Display', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 7rem;
+}
+
+body {
+  color: var(--ink);
+  background-color: #fbfaf7;
+  font-family: var(--font-body);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-sans {
+  font-family: var(--font-body) !important;
+}
+
+.font-serif {
+  font-family: var(--font-display) !important;
+}
+
+.font-script {
+  font-family: 'Segoe Script', 'Brush Script MT', cursive !important;
+}
+
+::selection {
+  color: #fff;
+  background: var(--primary-navy);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: 3px;
+}
+
+/* Custom smooth transitions */
+.transition-smooth {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Lightweight entrance animations used across the seller portal */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out both;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c5a059;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0c1b33;
+}
+
+/* Desktop support chat display scale. */
+@media (min-width: 1024px) {
+  .support-chat-desktop-scale { zoom: 0.75; }
+}
+
+@media (min-width: 1024px) {
+  .support-chat-fullscreen {
+    right: auto;
+    bottom: auto;
+    width: calc(100vw / 0.75);
+    height: calc(100dvh / 0.75);
+  }
+}
+
+/* Stack portal navigation above its workspace on tablet and smaller screens. */
+@media (max-width: 1023px) {
+  [data-admin-layout],
+  [data-seller-layout] {
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+  }
+
+  [data-admin-sidebar],
+  [data-seller-sidebar] {
+    position: relative;
+    top: auto;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: min(40dvh, 360px);
+    flex: 0 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  }
+
+  [data-admin-main],
+  [data-seller-main] {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 480px) {
+  [data-seller-sidebar] {
+    max-height: min(38dvh, 320px);
+  }
+}
+
+/* Keep page-level flex and grid children from forcing the viewport wider. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+main,
+section,
+article {
+  min-width: 0;
+}
+
+img,
+video,
+iframe,
+canvas {
+  max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+  }
+}
+
+/* Compact, collapsible seller navigation for phone and tablet screens. */
+@media (max-width: 767px) {
+  [data-seller-sidebar] {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+    box-shadow: 0 10px 28px -24px rgba(7, 19, 36, 0.8);
+  }
+
+  [data-seller-brand] {
+    padding: 0.625rem 0.75rem;
+  }
+
+  [data-seller-sidebar-identity] {
+    display: none;
+  }
+
+  [data-seller-sidebar][data-mobile-menu-open='false'] [data-seller-nav],
+  [data-seller-sidebar][data-mobile-menu-open='false'] [data-seller-footer-nav] {
+    display: none;
+  }
+
+  [data-seller-sidebar][data-mobile-menu-open='true'] [data-seller-nav] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.375rem;
+    padding: 0.75rem;
+  }
+
+  [data-seller-nav] > :not(:first-child),
+  [data-seller-footer-nav] > :not(:first-child) {
+    margin-top: 0 !important;
+  }
+
+  [data-seller-nav] > span {
+    grid-column: 1 / -1;
+    margin: 0 0 0.125rem;
+    padding: 0 0.25rem;
+  }
+
+  [data-seller-nav] > button {
+    min-width: 0;
+    min-height: 2.625rem;
+    gap: 0.25rem;
+    padding: 0.5rem 0.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.035);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+  }
+
+  [data-seller-nav] > button > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 0.375rem;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  [data-seller-nav-item] > div:first-child > span.truncate {
+    min-width: 0;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  [data-seller-sidebar][data-mobile-menu-open='true'] [data-seller-footer-nav] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.375rem;
+    padding: 0.625rem 0.75rem;
+  }
+
+  [data-seller-footer-nav] > button {
+    min-width: 0;
+    min-height: 2.5rem;
+    gap: 0.375rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.035);
+    font-size: 0.625rem;
+    line-height: 1.2;
+  }
+
+  [data-seller-footer-nav] > button > span {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  [data-seller-header-actions] {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.375rem;
+  }
+
+  [data-seller-header-actions] > button:nth-child(-n + 2) {
+    min-width: 0;
+    min-height: 2.5rem;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.5rem 0.375rem;
+    font-size: 0.625rem;
+    line-height: 1.2;
+  }
+
+  [data-seller-header-actions] > button:nth-child(-n + 2) > span {
+    min-width: 0;
+    text-align: center;
+    white-space: normal;
+  }
+
+  [data-seller-header-actions] > button:nth-child(3) {
+    grid-column: 1;
+    justify-self: end;
+  }
+
+  [data-seller-header-actions] > div:nth-child(4) {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

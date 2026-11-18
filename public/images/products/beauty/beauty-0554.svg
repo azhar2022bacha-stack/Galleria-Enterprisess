@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Illustrative MEN’S PERFUMES demo catalog artwork">
+    <defs>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(100 48% 83%)"/><stop offset=".42" stop-color="hsl(100 63% 62%)"/><stop offset="1" stop-color="hsl(100 53% 39%)"/></linearGradient>
+      <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="hsl(183 24% 24%)"/><stop offset=".55" stop-color="hsl(183 26% 40%)"/><stop offset="1" stop-color="hsl(183 22% 19%)"/></linearGradient>
+      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+    </defs>
+    <ellipse cx="512" cy="865" rx="203" ry="32" fill="#172033" fill-opacity=".15" filter="url(#shadow)"/>
+    <g transform="translate(0 0)">
+    <rect x="455" y="188" width="114" height="82" rx="16" fill="url(#cap)"/>
+    <path d="M473 266h78l18 57 67 55v339q0 56-56 56H444q-56 0-56-56V378l67-55z" fill="url(#body)" stroke="#182230" stroke-opacity=".22" stroke-width="6"/>
+    <path d="M410 386l102 46 102-46v302q0 40-40 40h-124q-40 0-40-40z" fill="#fff" fill-opacity=".15"/>
+    <path d="M512 431v293M412 388l100 43 100-43" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="7"/>
+    
+    <rect x="404" y="455" width="216" height="176" rx="11" fill="#ffffff" fill-opacity=".9"/>
+    <path d="M426 482h172" stroke="hsl(183 61% 47%)" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="512" cy="529" r="19" fill="hsl(100 55% 91%)" stroke="hsl(183 61% 47%)" stroke-width="3"/>
+    <path d="M500 529h24M512 517v24" stroke="hsl(183 61% 47%)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M432 572h160M450 592h124" stroke="#667085" stroke-opacity=".58" stroke-width="4" stroke-linecap="round"/></g>
+    <text x="512" y="850" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="2" fill="#667085">Giorgio Armani</text>
+    <text x="512" y="882" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" letter-spacing="1.5" fill="#98a2b3">ILLUSTRATIVE CATALOG ART · 0554</text>
+    <title>Giorgio Armani Woody Eau de — illustrative demo listing</title>
+  </svg>

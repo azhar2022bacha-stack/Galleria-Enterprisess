@@ -1,0 +1,76 @@
+import { NextResponse } from 'next/server';
+import { getRequestAdmin } from '@/lib/adminSession';
+import {
+  addStorehouseProductFeedCategory,
+  readStorehouseProductFeedCategoryDeletionState,
+  readStorehouseProductFeedCategories,
+  StorehouseProductFeedCategoryConflictError,
+} from '@/lib/storehouseProductFeedCategoriesServer';
+import { deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+export async function GET(request: Request) {
+  if (!(await getRequestAdmin(request))) {
+    return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
+  }
+  return NextResponse.json({
+    success: true,
+    categories: readStorehouseProductFeedCategories(),
+    ...readStorehouseProductFeedCategoryDeletionState(),
+  }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function POST(request: Request) {
+  if (!(await getRequestAdmin(request))) {
+    return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
+  }
+
+  let body: { kind?: string; name?: string; names?: unknown; categorySlug?: string };
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ success: false, error: 'Invalid category request.' }, { status: 400 }); }
+
+  if (body.kind !== 'category' && body.kind !== 'subcategory') {
+    return NextResponse.json({ success: false, error: 'Choose a category or subcategory to add.' }, { status: 400 });
+  }
+  try {
+    const categories = addStorehouseProductFeedCategory({
+      kind: body.kind,
+      name: typeof body.name === 'string' ? body.name : '',
+      names: Array.isArray(body.names) && body.names.every((item) => typeof item === 'string') ? body.names as string[] : undefined,
+      categorySlug: body.categorySlug,
+    });
+    return NextResponse.json({ success: true, categories }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not save the Storehouse category.';
+    const status = /already exists/i.test(message) ? 409 : 400;
+    const existing = error instanceof StorehouseProductFeedCategoryConflictError ? error.existing : undefined;
+    return NextResponse.json({ success: false, error: message, ...(existing ? { existing } : {}) }, { status });
+  }
+}
+
+export async function DELETE(request: Request) {
+  if (!(await getRequestAdmin(request))) {
+    return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
+  }
+
+  let body: { kind?: string; categorySlug?: string; categoryName?: string; subcategorySlug?: string; subcategoryName?: string };
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ success: false, error: 'Invalid category deletion request.' }, { status: 400 }); }
+
+  try {
+    const result = await deleteProductFeedCategoryEverywhere({
+      kind: body.kind,
+      categorySlug: body.categorySlug,
+      categoryName: body.categoryName,
+      subcategorySlug: body.subcategorySlug,
+      subcategoryName: body.subcategoryName,
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not delete this category.';
+    const status = /not found/i.test(message) ? 404 : /choose|select|provide/i.test(message) ? 400 : 500;
+    return NextResponse.json({ success: false, error: message }, { status });
+  }
+}

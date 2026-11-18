@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Illustrative HAIR STYLING PRODUCTS demo catalog artwork">
+    <defs>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(122 48% 83%)"/><stop offset=".42" stop-color="hsl(122 63% 62%)"/><stop offset="1" stop-color="hsl(122 53% 39%)"/></linearGradient>
+      <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="hsl(181 24% 24%)"/><stop offset=".55" stop-color="hsl(181 26% 40%)"/><stop offset="1" stop-color="hsl(181 22% 19%)"/></linearGradient>
+      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+    </defs>
+    <ellipse cx="512" cy="865" rx="203" ry="32" fill="#172033" fill-opacity=".15" filter="url(#shadow)"/>
+    <g transform="translate(0 0)">
+    <rect x="420" y="213" width="185" height="114" rx="24" fill="url(#cap)"/>
+    <path d="M448 321q0-24 26-24h79q26 0 26 24v30h28v374q0 46-46 46h-124q-46 0-46-46V351h28z" fill="url(#body)" stroke="#182230" stroke-opacity=".18" stroke-width="5"/>
+    <path d="M446 382h158v324q0 30-30 30h-98q-30 0-30-30z" fill="#fff" fill-opacity=".13"/>
+    
+    <rect x="404" y="455" width="216" height="176" rx="11" fill="#ffffff" fill-opacity=".9"/>
+    <path d="M426 482h172" stroke="hsl(181 61% 47%)" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="512" cy="529" r="19" fill="hsl(122 55% 91%)" stroke="hsl(181 61% 47%)" stroke-width="3"/>
+    <path d="M500 529h24M512 517v24" stroke="hsl(181 61% 47%)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M432 572h160M450 592h124" stroke="#667085" stroke-opacity=".58" stroke-width="4" stroke-linecap="round"/><path d="M467 373v-32h100" fill="none" stroke="#fff" stroke-opacity=".72" stroke-width="9" stroke-linecap="round"/></g>
+    <text x="512" y="850" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="2" fill="#667085">Biosilk</text>
+    <text x="512" y="882" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" letter-spacing="1.5" fill="#98a2b3">ILLUSTRATIVE CATALOG ART · 0240</text>
+    <title>Biosilk Flexible Hold Hairs — illustrative demo listing</title>
+  </svg>

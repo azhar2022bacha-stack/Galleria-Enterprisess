@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Illustrative MAKEUP TOOLS demo catalog artwork">
+    <defs>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(150 48% 83%)"/><stop offset=".42" stop-color="hsl(150 63% 62%)"/><stop offset="1" stop-color="hsl(150 53% 39%)"/></linearGradient>
+      <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="hsl(257 24% 24%)"/><stop offset=".55" stop-color="hsl(257 26% 40%)"/><stop offset="1" stop-color="hsl(257 22% 19%)"/></linearGradient>
+      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+    </defs>
+    <ellipse cx="512" cy="865" rx="203" ry="32" fill="#172033" fill-opacity=".15" filter="url(#shadow)"/>
+    <g transform="translate(0 0)">
+    <path d="M392 378q0-34 36-34h171q36 0 36 34v300q0 36-36 36H428q-36 0-36-36z" fill="hsl(150 55% 91%)" stroke="#182230" stroke-opacity=".16" stroke-width="5"/>
+    <path d="M420 392v-65q0-27 26-27h132q26 0 26 27v65" fill="none" stroke="url(#cap)" stroke-width="19"/>
+    <g stroke-linecap="round">
+      <path d="M452 610l-14-250" stroke="hsl(8 16% 23%)" stroke-width="19"/><path d="M438 362l-30-95q-4-14 10-20l31-13q16-5 23 11l23 99z" fill="hsl(257 61% 47%)"/>
+      <path d="M514 610v-285" stroke="hsl(8 16% 23%)" stroke-width="18"/><path d="M493 331q-14-63 5-101 17-25 34 0 19 38 5 101z" fill="hsl(150 54% 58%)"/>
+      <path d="M576 610l21-254" stroke="hsl(8 16% 23%)" stroke-width="19"/><path d="M589 356l22-93q4-15 20-10l30 11q14 7 9 22l-29 91z" fill="hsl(257 61% 47%)"/>
+    </g>
+    <rect x="408" y="635" width="204" height="73" rx="14" fill="#fff" fill-opacity=".92"/>
+    <text x="510" y="681" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#182230">BRUSH SET</text></g>
+    <text x="512" y="850" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="2" fill="#667085">Denman</text>
+    <text x="512" y="882" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" letter-spacing="1.5" fill="#98a2b3">ILLUSTRATIVE CATALOG ART · 0879</text>
+    <title>Denman Blending Sponge — illustrative demo listing</title>
+  </svg>

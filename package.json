@@ -1,0 +1,34 @@
+{
+  "name": "galleria-enterprises",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/ensure-local-postgres.mjs",
+    "dev": "next dev",
+    "build": "next build",
+    "prestart": "node scripts/ensure-local-postgres.mjs",
+    "start": "next start",
+    "lint": "next lint",
+    "catalog:import": "node scripts/import-storehouse-catalog.mjs"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "emoji-picker-react": "^5.1.4",
+    "lucide-react": "^0.468.0",
+    "next": "^14.2.18",
+    "pg": "^8.23.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.6.3"
+  }
+}

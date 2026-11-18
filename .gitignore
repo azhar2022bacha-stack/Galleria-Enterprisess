@@ -1,0 +1,56 @@
+# Environment secrets
+.env*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Local database, temporary files, and generated reports
+.local-postgres/
+tmp/
+/output/
+/product-feeds/
+/product-imports/
+/public/uploads/
+
+# Local application records and private user data
+/src/data/admin_accounts.json
+/src/data/admin_audit_log.json
+/src/data/admin_disputes.json
+/src/data/admin_handover_tasks.json
+/src/data/consign_orders.json
+/src/data/consign_product_queries.json
+/src/data/consign_refunds.json
+/src/data/crypto_receiving_addresses.json
+/src/data/invite_codes.json
+/src/data/kyc_submissions.json
+/src/data/product_reviews.json
+/src/data/product_update_history.json
+/src/data/retail_listings.json
+/src/data/seller_notifications.json
+/src/data/seller_products.json
+/src/data/seller_shop_settings.json
+/src/data/seller_wallet_adjustments.json
+/src/data/sellers.json
+/src/data/store_category_overrides.json
+/src/data/store_settings.json
+/src/data/storefront_orders.json
+/src/data/storefront_promotions.json
+/src/data/storehouse_catalog_fallback.json
+/src/data/storehouse_product_feed_categories.json
+/src/data/support_chats.json
+/src/data/support_profiles.json
+/src/data/wallet_recharges.json
+/src/data/website_info.json
+
+# OS files
+.DS_Store
+Thumbs.db

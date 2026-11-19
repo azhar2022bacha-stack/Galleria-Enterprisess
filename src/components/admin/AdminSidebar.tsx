@@ -219,8 +219,6 @@ export function AdminSidebar({
     { id: 'restock', label: 'Restock', iconType: 'shield' },
     { id: 'refund_governance', label: 'Refunds', iconType: 'grid' },
     { id: 'logins', label: 'Logins', iconType: 'grid' },
-    { id: 'product_review', label: 'Review', iconType: 'bag' },
-    { id: 'retail_listings', label: 'Retail Listings', iconType: 'bag' },
     { id: 'storefront_orders', label: 'Store Orders', iconType: 'bag' },
     { id: 'videos', label: 'Videos', iconType: 'grid' },
     { id: 'recharges', label: 'Recharges', iconType: 'dollar' },

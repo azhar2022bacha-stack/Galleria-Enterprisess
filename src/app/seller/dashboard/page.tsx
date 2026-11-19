@@ -116,7 +116,6 @@ import {
   Upload,
   PackageOpen,
   Inbox,
-  ShoppingBag,
 } from 'lucide-react';
 
 // Interfaces
@@ -954,8 +953,6 @@ export default function SellerDashboardPage() {
     { id: 'dashboard', label: 'Dashboard', icon: AlignJustify },
     { id: 'storehouse', label: 'Storehouse', icon: Building2 },
     { id: 'my_products', label: 'My Products', icon: Columns },
-    { id: 'retail_listings', label: 'Retail Listings', icon: ShoppingBag },
-    { id: 'retail_orders', label: 'Retail Orders', icon: PackageOpen },
     { id: 'orders', label: 'Orders', icon: CircleDot },
     { id: 'order_tracker', label: 'Order Tracker', icon: PackageOpen },
     { id: 'wallet', label: 'Wallet & Earnings', icon: Sparkle },

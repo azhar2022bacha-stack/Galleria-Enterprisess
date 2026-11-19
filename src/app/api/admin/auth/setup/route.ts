@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const response = NextResponse.json({ success: true, account: toPublicAdminAccount(account) }, { status: 201 });
     response.cookies.set(ADMIN_SESSION_COOKIE, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: new URL(request.url).protocol === 'https:',
       sameSite: 'lax',
       path: '/',
       maxAge: ADMIN_SESSION_MAX_AGE,

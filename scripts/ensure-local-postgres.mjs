@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,15 +45,15 @@ if (await canConnect()) {
   process.exit(0);
 }
 
-const start = spawnSync(
+const start = spawn(
   pgCtl,
   ['-D', dataDirectory, '-l', logFile, '-o', `-p ${port}`, '-w', 'start'],
-  { encoding: 'utf8', windowsHide: true, timeout: 30000 },
+  { stdio: 'ignore', windowsHide: true },
 );
-
-if (start.stdout?.trim()) console.log(start.stdout.trim());
-if (start.stderr?.trim()) console.error(start.stderr.trim());
-if (start.error) throw start.error;
+start.unref();
+start.on('error', (error) => {
+  console.warn(`Unable to start local PostgreSQL: ${error.message}`);
+});
 
 for (let attempt = 0; attempt < 20; attempt += 1) {
   if (await canConnect()) {

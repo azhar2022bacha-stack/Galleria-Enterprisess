@@ -452,7 +452,7 @@ function SellerPortalContent() {
                 </div>
               </div>
               <div className="relative max-w-sm">
-                <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#d7bc68]">Welcome to your store</p>
+                <p className="mb-4 inline-block border-b border-[#d7bc68] pb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#d7bc68]">Welcome to your store</p>
                 <h1 className="text-4xl font-semibold leading-tight tracking-tight">Your business, ready to move forward.</h1>
                 <p className="mt-5 text-sm leading-7 text-slate-300">Sign in to manage your seller workspace, products, orders, and shop settings.</p>
               </div>

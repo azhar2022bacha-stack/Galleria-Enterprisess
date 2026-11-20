@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { RetailListing } from '@/lib/retailListings';
+import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
 import { findSharedCatalogImageReferences } from '@/lib/storehouseCatalogServer';
 import { lockConsignCatalogForWrite } from '@/lib/consignCatalogServer';
 import {
@@ -292,7 +293,11 @@ async function deleteStorehouseRows(
   }
 }
 
-export async function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
+export function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
+  return withProductFeedCategoryWrite(() => deleteCategory(input));
+}
+
+async function deleteCategory(input: DeleteInput) {
   if (input.kind !== 'category' && input.kind !== 'subcategory') throw new Error('Choose a category or subcategory to delete.');
   const kind = input.kind as CategoryKind;
   const requestedCategorySlug = String(input.categorySlug || '').trim();

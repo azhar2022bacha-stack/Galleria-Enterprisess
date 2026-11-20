@@ -7,6 +7,7 @@ import {
   StorehouseProductFeedCategoryConflictError,
 } from '@/lib/storehouseProductFeedCategoriesServer';
 import { deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
+import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -35,12 +36,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Choose a category or subcategory to add.' }, { status: 400 });
   }
   try {
-    const categories = addStorehouseProductFeedCategory({
-      kind: body.kind,
+    const kind = body.kind;
+    const categories = await withProductFeedCategoryWrite(() => addStorehouseProductFeedCategory({
+      kind,
       name: typeof body.name === 'string' ? body.name : '',
       names: Array.isArray(body.names) && body.names.every((item) => typeof item === 'string') ? body.names as string[] : undefined,
       categorySlug: body.categorySlug,
-    });
+    }));
     return NextResponse.json({ success: true, categories }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not save the Storehouse category.';

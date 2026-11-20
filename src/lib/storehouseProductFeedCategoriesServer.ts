@@ -1,7 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
+import { readProductFeedCategorySnapshot, writeProductFeedCategorySnapshot } from '@/lib/productFeedCategoryStorage';
 
 export interface StorehouseFeedCategory {
   id: string;
@@ -36,7 +34,7 @@ export interface StorehouseFeedCategoryOverrides {
   deletedSubcategories: Record<string, string[]>;
 }
 
-const OVERRIDES_FILE = path.join(process.cwd(), 'src', 'data', 'storehouse_product_feed_categories.json');
+const OVERRIDES_FILE = 'storehouse_product_feed_categories.json';
 
 function normalizeName(value: string): string {
   return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -47,37 +45,31 @@ function slugify(value: string): string {
 }
 
 export function readStorehouseProductFeedCategoryOverrides(): StorehouseFeedCategoryOverrides {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(OVERRIDES_FILE, 'utf8')) as Partial<StorehouseFeedCategoryOverrides>;
-    const categories = Array.isArray(parsed.categories) ? parsed.categories.filter((item) => (
-      item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.slug === 'string'
-    )) : [];
-    const subcategories = parsed.subcategories && typeof parsed.subcategories === 'object' && !Array.isArray(parsed.subcategories)
-      ? Object.fromEntries(Object.entries(parsed.subcategories).map(([categorySlug, values]) => [
-        categorySlug,
-        Array.isArray(values) ? values.filter((item) => item && typeof item.name === 'string' && typeof item.slug === 'string') : [],
-      ]))
-      : {};
-    const deletedCategories = Array.isArray(parsed.deletedCategories)
-      ? parsed.deletedCategories.filter((slug): slug is string => typeof slug === 'string')
-      : [];
-    const deletedSubcategories = parsed.deletedSubcategories && typeof parsed.deletedSubcategories === 'object' && !Array.isArray(parsed.deletedSubcategories)
-      ? Object.fromEntries(Object.entries(parsed.deletedSubcategories).map(([categorySlug, values]) => [
-        categorySlug,
-        Array.isArray(values) ? values.filter((item): item is string => typeof item === 'string') : [],
-      ]))
-      : {};
-    return { categories, subcategories, deletedCategories, deletedSubcategories };
-  } catch {
-    return { categories: [], subcategories: {}, deletedCategories: [], deletedSubcategories: {} };
-  }
+  const parsed = readProductFeedCategorySnapshot<StorehouseFeedCategoryOverrides>(OVERRIDES_FILE);
+  if (!parsed) return { categories: [], subcategories: {}, deletedCategories: [], deletedSubcategories: {} };
+  const categories = Array.isArray(parsed.categories) ? parsed.categories.filter((item) => (
+    item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.slug === 'string'
+  )) : [];
+  const subcategories = parsed.subcategories && typeof parsed.subcategories === 'object' && !Array.isArray(parsed.subcategories)
+    ? Object.fromEntries(Object.entries(parsed.subcategories).map(([categorySlug, values]) => [
+      categorySlug,
+      Array.isArray(values) ? values.filter((item) => item && typeof item.name === 'string' && typeof item.slug === 'string') : [],
+    ]))
+    : {};
+  const deletedCategories = Array.isArray(parsed.deletedCategories)
+    ? parsed.deletedCategories.filter((slug): slug is string => typeof slug === 'string')
+    : [];
+  const deletedSubcategories = parsed.deletedSubcategories && typeof parsed.deletedSubcategories === 'object' && !Array.isArray(parsed.deletedSubcategories)
+    ? Object.fromEntries(Object.entries(parsed.deletedSubcategories).map(([categorySlug, values]) => [
+      categorySlug,
+      Array.isArray(values) ? values.filter((item): item is string => typeof item === 'string') : [],
+    ]))
+    : {};
+  return { categories, subcategories, deletedCategories, deletedSubcategories };
 }
 
 export function writeStorehouseProductFeedCategoryOverrides(overrides: StorehouseFeedCategoryOverrides): void {
-  fs.mkdirSync(path.dirname(OVERRIDES_FILE), { recursive: true });
-  const temporaryFile = `${OVERRIDES_FILE}.${process.pid}.${randomUUID()}.tmp`;
-  fs.writeFileSync(temporaryFile, JSON.stringify(overrides, null, 2), { encoding: 'utf8', flag: 'wx' });
-  fs.renameSync(temporaryFile, OVERRIDES_FILE);
+  writeProductFeedCategorySnapshot(OVERRIDES_FILE, overrides);
 }
 
 export function readStorehouseProductFeedCategories(): StorehouseFeedCategory[] {

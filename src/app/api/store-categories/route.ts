@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getStoreCategories, readStoreCategoryOverrides, writeStoreCategoryOverrides } from '@/lib/storeCategoriesServer';
 import { deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
+import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -26,6 +27,10 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ success: false, error: 'Invalid category request.' }, { status: 400 }); }
 
+  return withProductFeedCategoryWrite(() => saveCategory(body));
+}
+
+function saveCategory(body: any) {
   const kind = String(body?.kind || '');
   const names: string[] = kind === 'subcategory'
     ? (Array.isArray(body?.names) ? body.names : typeof body?.name === 'string' ? body.name.split(',') : [])

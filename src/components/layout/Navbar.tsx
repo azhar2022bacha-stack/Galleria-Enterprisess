@@ -7,7 +7,7 @@ import { ArrowRight, ChevronDown, ChevronRight, Grid2X2, Heart, Menu, Scale, Sea
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
-import { STOREHOUSE_MAIN_CATEGORIES, TOTAL_MAIN_STOREHOUSE_PRODUCTS } from '@/data/storehouseMainCategories';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
 import { BrandMark } from './BrandMark';
 
@@ -20,9 +20,6 @@ const shopLinks = [
 
 const dealLinks = [
   { href: '/deals', label: 'All promotions' },
-  { href: '/category/mens-fashion', label: "Men’s fashion edit" },
-  { href: '/category/bags-accessories', label: 'Luxury bags new arrivals' },
-  { href: '/category/sports-fitness', label: 'Sports & fitness deals' },
 ];
 
 const mainLinks = [
@@ -41,6 +38,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const { totalItems } = useCart();
   const { totalWishlistItems } = useWishlist();
   const { products: compareProducts } = useCompare();
+  const { categories, products, isLoading, error } = useStorefrontCatalog();
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
@@ -132,7 +130,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
             <div className="order-last col-span-3 mt-2 flex min-w-0 gap-2 lg:order-none lg:col-span-1 lg:mt-0">
               {!isSellerStorefront && (
                 <button type="button" onClick={openCategories} aria-haspopup="dialog" aria-expanded={categoryMenuOpen} aria-controls="store-category-drawer" className={departmentsButton + ' lg:hidden'}>
-                  <Grid2X2 size={15} strokeWidth={1.75} /> Departments
+                  <Grid2X2 size={15} strokeWidth={1.75} /> All Categories
                 </button>
               )}
               <form onSubmit={handleSearchSubmit} role="search" className="relative min-w-0 flex-1">
@@ -163,7 +161,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
           <div className="hidden grid-cols-[1fr_auto_1fr] items-center border-t border-[#eee7dc] lg:grid">
             {!isSellerStorefront && (
               <button type="button" onClick={openCategories} aria-haspopup="dialog" aria-expanded={categoryMenuOpen} aria-controls="store-category-drawer" className={departmentsButton + ' my-2 mr-auto min-h-9'}>
-                <Grid2X2 size={15} strokeWidth={1.75} /> Departments
+                <Grid2X2 size={15} strokeWidth={1.75} /> All Categories
               </button>
             )}
             <nav ref={dropdownRef} aria-label="Main navigation" className="col-start-2 flex items-center gap-8 xl:gap-10">
@@ -217,18 +215,19 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
         >
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between gap-4 border-b border-[#e6ded0] px-5 py-4 sm:px-6">
-              <h2 id="store-category-title" className="font-serif text-2xl tracking-tight">Shop by department</h2>
+              <h2 id="store-category-title" className="font-serif text-2xl tracking-tight">All Categories</h2>
               <button type="button" onClick={() => categoryDialogRef.current?.close()} aria-label="Close category menu" className={iconButton}><X size={21} strokeWidth={1.65} /></button>
             </div>
             <nav aria-label="Store categories" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
               <Link href="/shop" onClick={() => categoryDialogRef.current?.close()} className="mb-3 flex min-h-12 items-center justify-between rounded-md bg-[#14263d] px-4 text-sm font-semibold text-white transition hover:bg-[#203a5b]">
-                <span>All products</span><span className="flex items-center gap-2 text-xs text-white/80">{TOTAL_MAIN_STOREHOUSE_PRODUCTS.toLocaleString('en-US')} <ArrowRight size={15} /></span>
+                <span>All products</span><span className="flex items-center gap-2 text-xs text-white/80">{!isLoading && !error && products.length.toLocaleString('en-US')} <ArrowRight size={15} /></span>
               </Link>
+              {!categories.length && <p role="status" className="px-2 py-3 text-sm text-[#656f7a]">{isLoading ? 'Loading categories…' : error || 'No categories yet.'}</p>}
               <ul className="divide-y divide-[#eee7dc]">
-                {STOREHOUSE_MAIN_CATEGORIES.map((category) => (
+                {categories.map((category) => (
                   <li key={category.id}>
                     <Link href={'/shop?category=' + encodeURIComponent(category.slug)} prefetch={false} onClick={() => categoryDialogRef.current?.close()} className="group flex min-h-12 items-center justify-between gap-3 rounded-sm px-2 text-sm transition hover:bg-[#f4efe6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a77e43]">
-                      <span>{category.name}</span><span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-[#656f7a]">{(category.catalogProductCount || 0).toLocaleString('en-US')} <ChevronRight size={15} strokeWidth={1.65} /></span>
+                      <span>{category.name}</span><span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-[#656f7a]">{category.catalogProductCount.toLocaleString('en-US')} <ChevronRight size={15} strokeWidth={1.65} /></span>
                     </Link>
                   </li>
                 ))}

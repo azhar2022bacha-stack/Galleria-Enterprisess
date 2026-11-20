@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Product } from '@/types';
+import { isDemoStorefrontProduct } from '@/lib/demoStorefrontProduct';
 
 const COMPARE_LIMIT = 4;
 
@@ -25,7 +26,7 @@ export function CompareProvider({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem('galleria_compare');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) setProducts(parsed.slice(0, COMPARE_LIMIT));
+        if (Array.isArray(parsed)) setProducts(parsed.filter((product) => product?.id && !isDemoStorefrontProduct(product.id)).slice(0, COMPARE_LIMIT));
       }
     } catch {}
     setInitialized(true);

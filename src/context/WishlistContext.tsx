@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product, WishlistItem } from '@/types';
+import { isDemoStorefrontProduct } from '@/lib/demoStorefrontProduct';
 
 interface WishlistContextType {
   items: WishlistItem[];
@@ -22,7 +23,8 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     try {
       const stored = localStorage.getItem('galleria_wishlist');
       if (stored) {
-        setItems(JSON.parse(stored));
+        const savedItems = JSON.parse(stored) as WishlistItem[];
+        if (Array.isArray(savedItems)) setItems(savedItems.filter((item) => item?.productId && !isDemoStorefrontProduct(item.productId)));
       }
     } catch (e) {
       console.error('Failed to load wishlist from storage', e);

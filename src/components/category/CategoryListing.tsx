@@ -5,48 +5,27 @@ import Link from 'next/link';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
-import { filterProductsByActiveStoreTaxonomy, getProductsForStoreCategory, PRODUCTS_PER_SUBCATEGORY_TARGET } from '@/lib/storeCatalog';
-import { retailListingToProduct } from '@/lib/retailListingProduct';
-import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
-import { ALL_PRODUCTS } from '@/services/mockData';
-import type { Product } from '@/types';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 
 const PAGE_SIZE = 24;
 
 export default function CategoryListing({ categorySlug, subcategorySlug }: { categorySlug: string; subcategorySlug?: string }) {
-  const [storeCategories, setStoreCategories] = useState<StoreCategoryData[]>(STORE_CATEGORIES as unknown as StoreCategoryData[]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const category = storeCategories.find((item) => item.slug === categorySlug);
+  const { categories, products: catalogProducts, isLoading, error } = useStorefrontCatalog();
+  const category = categories.find((item) => item.slug === categorySlug);
   const subcategory = category?.subcategories.find((item) => item.slug === subcategorySlug);
-  const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('featured');
   const [page, setPage] = useState(1);
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
 
-  useEffect(() => {
-    let active = true;
-    fetch('/api/store-categories', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load store categories.')))
-      .then((result) => { if (active && Array.isArray(result.categories)) setStoreCategories(result.categories); })
-      .catch(() => undefined)
-      .finally(() => { if (active) setCategoriesLoading(false); });
-    return () => { active = false; };
-  }, [categorySlug]);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/retail-listings?scope=public', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load products.')))
-      .then((result) => { if (active && Array.isArray(result.listings)) setSellerProducts(result.listings.map(retailListingToProduct)); })
-      .catch(() => { if (active) setSellerProducts([]); });
-    return () => { active = false; };
-  }, []);
+  const categoryProducts = useMemo(
+    () => catalogProducts.filter((product) => product.storeCategorySlug === categorySlug),
+    [catalogProducts, categorySlug],
+  );
 
   const products = useMemo(() => {
-    if (!category) return [];
-    const selected = getProductsForStoreCategory(filterProductsByActiveStoreTaxonomy([...sellerProducts, ...ALL_PRODUCTS], storeCategories), category.slug, subcategory?.slug);
+    const selected = subcategorySlug ? categoryProducts.filter((product) => product.subcategorySlug === subcategorySlug) : categoryProducts;
     const normalizedSearch = search.trim().toLowerCase();
     const searched = normalizedSearch
       ? selected.filter((product) => `${product.title} ${product.brand || ''} ${product.description} ${product.sku}`.toLowerCase().includes(normalizedSearch))
@@ -55,22 +34,21 @@ export default function CategoryListing({ categorySlug, subcategorySlug }: { cat
       if (sort === 'price-low') return a.price - b.price;
       if (sort === 'price-high') return b.price - a.price;
       if (sort === 'name') return a.title.localeCompare(b.title);
-      if (sort === 'newest') return Number(Boolean(b.isNewArrival)) - Number(Boolean(a.isNewArrival));
+      if (sort === 'newest') return b.createdAt.localeCompare(a.createdAt);
       return Number(Boolean(b.isFeatured || b.isBestSeller)) - Number(Boolean(a.isFeatured || a.isBestSeller));
     });
-  }, [category, sellerProducts, storeCategories, subcategory?.slug, search, sort]);
+  }, [categoryProducts, subcategorySlug, search, sort]);
   const subcategoryCounts = useMemo(() => {
-    if (!category || subcategory) return {} as Record<string, number>;
-    const allProducts = filterProductsByActiveStoreTaxonomy([...sellerProducts, ...ALL_PRODUCTS], storeCategories);
-    return Object.fromEntries(category.subcategories.map((item) => [
-      item.slug,
-      getProductsForStoreCategory(allProducts, category.slug, item.slug).length,
-    ])) as Record<string, number>;
-  }, [category, sellerProducts, storeCategories, subcategory]);
+    const counts = new Map<string, number>();
+    for (const { subcategorySlug } of categoryProducts) {
+      if (subcategorySlug) counts.set(subcategorySlug, (counts.get(subcategorySlug) ?? 0) + 1);
+    }
+    return counts;
+  }, [categoryProducts]);
 
   useEffect(() => setPage(1), [categorySlug, subcategorySlug, search, sort]);
 
-  if (!category && categoriesLoading) return <div className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">Loading collections…</div>;
+  if (!category && (isLoading || error)) return <div role="status" className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">{isLoading ? 'Loading collections…' : error}</div>;
   if (!category || (subcategorySlug && !subcategory)) {
     return <div className="mx-auto max-w-7xl px-4 py-24 text-center"><h1 className="font-serif text-3xl text-[#14263d]">Collection not found</h1><Link href="/shop" className="mt-5 inline-flex rounded-full bg-[#14263d] px-5 py-3 text-xs font-bold text-white">Explore the store</Link></div>;
   }
@@ -84,23 +62,31 @@ export default function CategoryListing({ categorySlug, subcategorySlug }: { cat
       <section className="relative overflow-hidden rounded-[28px] bg-[#0c1b33] px-6 py-9 text-white shadow-xl sm:px-10 sm:py-12">
         <div className="absolute -right-12 -top-24 h-72 w-72 rounded-full bg-[#c5a059]/15 blur-3xl" />
         <div className="relative max-w-3xl">
-          <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-[#e3c78e]">Our departments</p>
           <h1 className="mt-2 font-serif text-3xl font-medium tracking-tight sm:text-5xl">{subcategory?.name || category.name}</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-white/70">Explore the {subcategory ? `${subcategory.name} collection` : `${category.subcategories.length} collections in ${category.name}`} department.</p>
-          <div className="mt-5 inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-semibold text-white/85">{subcategory ? `${products.length} of ${PRODUCTS_PER_SUBCATEGORY_TARGET} products in this collection` : `${products.length.toLocaleString()} listed products`}</div>
+          <div className="mt-5 inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-semibold text-white/85">{products.length.toLocaleString()} listed products</div>
         </div>
       </section>
 
-          {!subcategory && <section className="mt-7">
-        <div className="mb-3 flex items-end justify-between gap-4"><div><p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#a77e43]">Shop the department</p><h2 className="mt-1 font-serif text-xl text-[#14263d]">Browse collections</h2></div><span className="text-[10px] text-[#758092]">{category.subcategories.length} collections</span></div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5">{category.subcategories.map((item) => { const count = subcategoryCounts[item.slug] || 0; return <Link key={item.slug} href={`/category/${category.slug}/${item.slug}`} className="group flex min-h-[82px] items-center justify-between gap-3 rounded-2xl border border-[#e9e4da] bg-white px-4 py-3 text-xs font-semibold text-[#405066] shadow-sm transition hover:-translate-y-0.5 hover:border-[#d5c29f] hover:text-[#14263d] hover:shadow-md"><span className="min-w-0"><span className="block">{item.name}</span><span className="mt-1 block text-[9px] font-normal text-[#929baa]">{count} / {PRODUCTS_PER_SUBCATEGORY_TARGET} products</span></span><span className="text-[#b99152] transition group-hover:translate-x-0.5">→</span></Link>; })}</div>
+      {!subcategory && category.subcategories.length > 0 && <section className="mt-7">
+        <h2 className="mb-3 font-serif text-xl text-[#14263d]">Browse collections</h2>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5">
+          {category.subcategories.map((item) => (
+            <Link key={item.slug} href={`/category/${category.slug}/${item.slug}`} className="group flex min-h-[82px] items-center justify-between gap-3 rounded-2xl border border-[#e9e4da] bg-white px-4 py-3 text-xs font-semibold text-[#405066] shadow-sm transition hover:-translate-y-0.5 hover:border-[#d5c29f] hover:text-[#14263d] hover:shadow-md">
+              <span className="min-w-0">
+                <span className="block">{item.name}</span>
+                <span className="mt-1 block text-[9px] font-normal text-[#929baa]">{subcategoryCounts.get(item.slug) ?? 0} products</span>
+              </span>
+              <span className="text-[#b99152] transition group-hover:translate-x-0.5">→</span>
+            </Link>
+          ))}
+        </div>
       </section>}
 
       {subcategory && <nav aria-label={`${category.name} collections`} className="mt-6 flex gap-2 overflow-x-auto pb-2">{category.subcategories.map((item) => <Link key={item.slug} href={`/category/${category.slug}/${item.slug}`} className={`shrink-0 rounded-full border px-3.5 py-2 text-[10px] font-semibold transition ${item.slug === subcategory.slug ? 'border-[#14263d] bg-[#14263d] text-white' : 'border-[#e6e1d8] bg-white text-[#5c6879] hover:border-[#b99152] hover:text-[#14263d]'}`}>{item.name}</Link>)}</nav>}
 
       <section className="mt-8">
         <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[#e9e4da] bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#a77e43]">Product listings</p><h2 className="mt-1 text-sm font-semibold text-[#14263d]">{subcategory?.name || category.name}<span className="ml-2 font-normal text-[#8993a0]">({products.length}{subcategory ? ` / ${PRODUCTS_PER_SUBCATEGORY_TARGET}` : ''})</span></h2>{subcategory && <div className="mt-2 h-1.5 w-40 overflow-hidden rounded-full bg-[#eee9df]"><div className="h-full rounded-full bg-[#b99152]" style={{ width: `${Math.min(100, (products.length / PRODUCTS_PER_SUBCATEGORY_TARGET) * 100)}%` }} /></div>}</div>
+          <h2 className="text-sm font-semibold text-[#14263d]">{subcategory?.name || category.name}<span className="ml-2 font-normal text-[#8993a0]">({products.length})</span></h2>
           <div className="flex flex-col gap-2 sm:flex-row">
             <label className="sr-only" htmlFor="category-search">Search this collection</label><input id="category-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this collection" className="w-full rounded-full border border-[#e6e1d8] bg-[#fbfaf7] px-4 py-2.5 text-xs outline-none focus:border-[#b99152] sm:w-64" />
             <label className="sr-only" htmlFor="category-sort">Sort products</label><select id="category-sort" value={sort} onChange={(event) => setSort(event.target.value)} className="rounded-full border border-[#e6e1d8] bg-white px-4 py-2.5 text-xs text-[#526071] outline-none focus:border-[#b99152]"><option value="featured">Featured</option><option value="newest">Newest</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name: A–Z</option></select>

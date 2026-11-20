@@ -1,27 +1,15 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Star, Heart, ShoppingBag, Tag } from 'lucide-react';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
-import { ALL_PRODUCTS } from '@/services/mockData';
-import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
-import { filterProductsByActiveStoreTaxonomy } from '@/lib/storeCatalog';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 
 export default function DealsPage() {
-  const [storeCategories, setStoreCategories] = useState<StoreCategoryData[]>(STORE_CATEGORIES as unknown as StoreCategoryData[]);
-  useEffect(() => {
-    let active = true;
-    fetch('/api/store-categories', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load store categories.')))
-      .then((result) => { if (active && Array.isArray(result.categories)) setStoreCategories(result.categories); })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
-  const dealsProducts = filterProductsByActiveStoreTaxonomy(ALL_PRODUCTS, storeCategories).filter(
+  const { products, isLoading, error } = useStorefrontCatalog();
+  const dealsProducts = products.filter(
     (p) => p.isDeal || (p.originalPrice && p.originalPrice > p.price)
   );
 
@@ -50,10 +38,9 @@ export default function DealsPage() {
               Special prices, thoughtfully selected
             </h1>
             <p className="text-sm text-gray-300 mt-3 font-light leading-relaxed">
-              Explore items with a listed comparison price. Product and price information in this preview is sample catalog content.
+              Browse current offers and special prices from the store.
             </p>
 
-            <p className="mt-5 text-xs text-gray-300">Discount codes are not active in this storefront preview.</p>
           </div>
         </div>
 
@@ -67,7 +54,9 @@ export default function DealsPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+        {dealsProducts.length === 0 ? (
+          <p role="status" className="rounded-xl border border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-600">{isLoading ? 'Loading offers…' : error || 'No special offers are available right now.'}</p>
+        ) : <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {dealsProducts.map((product) => {
             const isWish = isInWishlist(product.id);
             const savings = product.originalPrice ? product.originalPrice - product.price : 0;
@@ -168,7 +157,7 @@ export default function DealsPage() {
               </div>
             );
           })}
-        </div>
+        </div>}
 
       </div>
     </div>

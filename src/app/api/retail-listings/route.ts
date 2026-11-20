@@ -4,7 +4,6 @@ import { getRequestAdmin } from '@/lib/adminSession';
 import { readRetailListings, writeRetailListings } from '@/lib/retailListingsServer';
 import type { RetailListing } from '@/lib/retailListings';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
-import { ALL_PRODUCTS } from '@/services/mockData';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
 
 export const dynamic = 'force-dynamic';
@@ -51,8 +50,7 @@ function hasDuplicateProduct(body: any, listings: RetailListing[], excludeId = '
     (normalizedTitle && normalizeIdentity(title) === normalizedTitle)
     || (normalizedSku && sku && normalizeIdentity(sku) === normalizedSku)
   );
-  return ALL_PRODUCTS.some((product) => matches(product.title, product.sku))
-    || listings.some((listing) => listing.id !== excludeId && matches(listing.title, listing.sku));
+  return listings.some((listing) => listing.id !== excludeId && matches(listing.title, listing.sku));
 }
 
 function validateListing(body: any): string | null {

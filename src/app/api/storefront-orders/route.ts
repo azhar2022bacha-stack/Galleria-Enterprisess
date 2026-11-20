@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { randomBytes, randomUUID } from 'crypto';
-import { ALL_PRODUCTS } from '@/services/mockData';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { readRetailListings } from '@/lib/retailListingsServer';
 import { readStorefrontOrders, writeStorefrontOrders } from '@/lib/storefrontOrdersServer';
@@ -10,7 +9,6 @@ import { getSellerPublicStoreBySlug } from '@/lib/sellerPublicStoreServer';
 import type { Address, Product } from '@/types';
 import type { StorefrontOrderItem, StorefrontOrderRecord } from '@/lib/storefrontOrders';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
-import { getStorehouseProductById } from '@/lib/storehouseProduct';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,7 +176,6 @@ export async function POST(request: Request) {
   if (!shippingAddress) return NextResponse.json({ success: false, error: 'Complete the required shipping address and phone fields.' }, { status: 400 });
 
   const listings = await readRetailListings();
-  const catalog = new Map<string, Product>(ALL_PRODUCTS.map((product) => [product.id, product]));
   const listingById = new Map(listings.filter((listing) => listing.status === 'published').map((listing) => [listing.id, listing]));
   const aggregated = new Map<string, number>();
   const normalizedItems: { id: string; quantity: number; displayedPrice?: number; selectedColor?: string; selectedSize?: string }[] = [];
@@ -198,11 +195,6 @@ export async function POST(request: Request) {
       selectedColor: typeof item?.selectedColor === 'string' ? item.selectedColor.trim() : undefined,
       selectedSize: typeof item?.selectedSize === 'string' ? item.selectedSize.trim() : undefined,
     });
-  }
-
-  for (const id of aggregated.keys()) {
-    const storehouseProduct = getStorehouseProductById(id);
-    if (storehouseProduct) catalog.set(id, storehouseProduct);
   }
 
   const sellerProductsById = new Map<string, {
@@ -247,14 +239,10 @@ export async function POST(request: Request) {
       if (!sellerProduct || !sellerProduct.product.inStock || requested > available) {
         stockIssues.push({ productId: id, title: sellerProduct?.product.title || 'A product in your cart', requested, available });
       }
-    } else if (id.startsWith('ret-')) {
+    } else {
       const listing = listingById.get(id);
       const available = Math.max(0, (listing?.stockQuantity || 0) - reservedFor(id));
       if (!listing || requested > available) stockIssues.push({ productId: id, title: listing?.title || 'A product in your cart', requested, available });
-    } else {
-      const product = catalog.get(id);
-      const available = Math.max(0, (product?.stockQuantity || 0) - reservedFor(id));
-      if (!product || !product.inStock || requested > available) stockIssues.push({ productId: id, title: product?.title || 'A product in your cart', requested, available });
     }
   }
   if (stockIssues.length > 0) return NextResponse.json({
@@ -267,7 +255,7 @@ export async function POST(request: Request) {
   for (const item of normalizedItems) {
     const listing = listingById.get(item.id);
     const sellerProduct = sellerProductsById.get(item.id);
-    const product = listing || sellerProduct?.product || catalog.get(item.id);
+    const product = listing || sellerProduct?.product;
     if (!product) continue;
     if (product.colors?.length && (!item.selectedColor || !product.colors.includes(item.selectedColor))) {
       return NextResponse.json({ success: false, error: `Choose an available color for ${product.title}.` }, { status: 400 });
@@ -282,7 +270,7 @@ export async function POST(request: Request) {
     if (item.displayedPrice === undefined) continue;
     const listing = listingById.get(item.id);
     const sellerProduct = sellerProductsById.get(item.id);
-    const product = listing || sellerProduct?.product || catalog.get(item.id);
+    const product = listing || sellerProduct?.product;
     if (!product || Math.round(item.displayedPrice * 100) === Math.round(product.price * 100)) continue;
     priceChangesById.set(item.id, { productId: item.id, title: product.title, price: product.price });
   }
@@ -298,7 +286,7 @@ export async function POST(request: Request) {
   const orderItems: StorefrontOrderItem[] = normalizedItems.map((item) => {
     const listing = listingById.get(item.id);
     const sellerProduct = sellerProductsById.get(item.id);
-    const product = listing || sellerProduct?.product || catalog.get(item.id)!;
+    const product = listing || sellerProduct!.product;
     return {
       productId: product.id,
       title: product.title,

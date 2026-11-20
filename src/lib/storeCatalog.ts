@@ -83,7 +83,7 @@ export function getProductsForStoreCategory(
   return selected;
 }
 
-export function filterProductsByActiveStoreTaxonomy(products: Product[], categories: StoreCategoryData[]): Product[] {
+export function filterProductsByActiveStoreTaxonomy<T extends Product>(products: T[], categories: StoreCategoryData[]): T[] {
   const categoriesBySlug = new Map(categories.map((category) => [category.slug, new Set(category.subcategories.map((subcategory) => subcategory.slug))]));
   return products.filter((product) => {
     const taxonomy = getStoreTaxonomyForProduct(product);

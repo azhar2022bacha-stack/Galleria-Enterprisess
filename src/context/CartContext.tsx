@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Product, CartItem } from '@/types';
+import { isDemoStorefrontProduct } from '@/lib/demoStorefrontProduct';
 
 interface CartContextType {
   items: CartItem[];
@@ -30,7 +31,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     try {
       const stored = localStorage.getItem('galleria_cart');
       if (stored) {
-        setItems(JSON.parse(stored));
+        const savedItems = JSON.parse(stored) as CartItem[];
+        if (Array.isArray(savedItems)) setItems(savedItems.filter((item) => item?.product?.id && !isDemoStorefrontProduct(item.product.id)));
       }
     } catch (e) {
       console.error('Failed to load cart from storage', e);

@@ -14,61 +14,35 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { ALL_PRODUCTS } from '@/services/mockData';
-import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
-import { filterProductsByActiveStoreTaxonomy, getStoreCategory, getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
-import { Product } from '@/types';
-import { retailListingToProduct } from '@/lib/retailListingProduct';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import { getStoreCategory } from '@/lib/storeCatalog';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
 import StorehouseShop from '@/components/storehouse/StorehouseShop';
 
-const PRICE_FILTER_MAX = Math.max(
-  300,
-  Math.ceil(Math.max(...ALL_PRODUCTS.map((product) => product.price)) / 50) * 50
-);
+const PRICE_FILTER_MAX = 300;
 function LegacyShopContent() {
   const searchParams = useSearchParams();
-  const requestedCategory = searchParams.get('category') || '';
-  const initialCategory = getStoreCategory(requestedCategory)?.slug || requestedCategory;
+  const initialCategory = searchParams.get('category') || '';
   const initialSearch = searchParams.get('search') || '';
   const initialFeatured = searchParams.get('featured') === 'true';
 
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { products: compareProducts, toggleProduct: toggleCompareProduct, hasProduct: isInCompare, limit: compareLimit } = useCompare();
-  const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
-  const [storeCategories, setStoreCategories] = useState<StoreCategoryData[]>(STORE_CATEGORIES as unknown as StoreCategoryData[]);
+  const { products: catalogProducts, categories: storeCategories, isLoading, error } = useStorefrontCatalog();
   const [reviewSummaries, setReviewSummaries] = useState<Record<string, { count: number; ratingAverage: number }>>({});
   const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory);
+  const categorySlug = storeCategories.some((category) => category.slug === selectedCategory)
+    ? selectedCategory : getStoreCategory(selectedCategory)?.slug || selectedCategory;
   const [searchQuery, setSearchQuery] = useState<string>(initialSearch);
   const [priceRange, setPriceRange] = useState<number>(PRICE_FILTER_MAX);
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
   const [minRating, setMinRating] = useState<number>(0);
   const [sortBy, setSortBy] = useState<string>(initialFeatured ? 'featured' : 'default');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/store-categories', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load store categories.')))
-      .then((result) => { if (active && Array.isArray(result.categories)) setStoreCategories(result.categories); })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/retail-listings?scope=public', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load seller listings.')))
-      .then((result) => {
-        if (active && Array.isArray(result.listings)) setSellerProducts(result.listings.map(retailListingToProduct));
-      })
-      .catch(() => { if (active) setSellerProducts([]); });
-    return () => { active = false; };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -79,11 +53,11 @@ function LegacyShopContent() {
     return () => { active = false; };
   }, []);
 
-  const products = React.useMemo(() => filterProductsByActiveStoreTaxonomy([...sellerProducts, ...ALL_PRODUCTS], storeCategories).map((product) => {
+  const products = React.useMemo(() => catalogProducts.map((product) => {
     const summary = reviewSummaries[product.id];
     return { ...product, rating: summary?.ratingAverage || 0, reviewCount: summary?.count || 0 };
-  }), [sellerProducts, reviewSummaries, storeCategories]);
-  const priceFilterMax = Math.max(PRICE_FILTER_MAX, Math.ceil(Math.max(...products.map((product) => product.price)) / 50) * 50);
+  }), [catalogProducts, reviewSummaries]);
+  const priceFilterMax = Math.max(PRICE_FILTER_MAX, Math.ceil(products.reduce((max, product) => Math.max(max, product.price), 0) / 50) * 50);
   const searchSuggestions = React.useMemo(() => Array.from(new Set(
     products.flatMap((product) => [product.title, product.brand || '', product.category, product.sku]).filter(Boolean)
   )), [products]);
@@ -101,7 +75,7 @@ function LegacyShopContent() {
   // Filtered Products
   const filteredProducts = products.filter((product) => {
     // Category filter
-    if (selectedCategory && getStoreTaxonomyForProduct(product).categorySlug !== selectedCategory) {
+    if (categorySlug && product.storeCategorySlug !== categorySlug) {
       return false;
     }
     // Search query
@@ -136,7 +110,7 @@ function LegacyShopContent() {
     if (sortBy === 'price-low') return a.price - b.price;
     if (sortBy === 'price-high') return b.price - a.price;
     if (sortBy === 'rating') return b.rating - a.rating;
-    if (sortBy === 'newest') return (b.isNewArrival ? 1 : 0) - (a.isNewArrival ? 1 : 0);
+    if (sortBy === 'newest') return b.createdAt.localeCompare(a.createdAt);
     if (sortBy === 'featured') return (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0);
     return 0;
   });
@@ -284,14 +258,14 @@ function LegacyShopContent() {
                     key={cat.id}
                     onClick={() => setSelectedCategory(cat.slug)}
                     className={`w-full text-left text-xs py-1.5 px-2 rounded transition-colors flex items-center justify-between ${
-                      selectedCategory === cat.slug
+                      categorySlug === cat.slug
                         ? 'bg-[#0c1b33] text-white font-medium'
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
                     <span>{cat.name}</span>
                     <span className="text-[10px] opacity-70">
-                      {products.filter((product) => getStoreTaxonomyForProduct(product).categorySlug === cat.slug).length}
+                      {cat.catalogProductCount}
                     </span>
                   </button>
                 ))}
@@ -366,12 +340,14 @@ function LegacyShopContent() {
 
           {/* Product Grid */}
           <main className="lg:col-span-3">
-            {filteredProducts.length === 0 ? (
+            {isLoading || error ? (
+              <p role="status" className="rounded-3xl border border-[#e9e4da] bg-white px-6 py-16 text-center text-sm text-[#626a73]">{isLoading ? 'Loading products…' : error}</p>
+            ) : filteredProducts.length === 0 ? (
               <div className="rounded-3xl border border-[#e9e4da] bg-white px-6 py-16 text-center shadow-sm sm:px-12">
                 <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
                   <Search className="w-5 h-5" />
                 </div>
-                <h2 className="text-lg font-semibold text-[#0c1b33]">No matching products</h2>
+                <h2 className="text-lg font-semibold text-[#0c1b33]">{products.length ? 'No matching products' : 'No products available yet'}</h2>
                 <p className="text-gray-500 text-sm mt-2 mb-5">
                   {searchQuery.trim()
                     ? `We could not find “${searchQuery.trim()}” with these filters. Try another name, brand, category, or SKU.`

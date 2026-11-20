@@ -14,7 +14,6 @@ import {
   findStorehouseFallbackProductKeys,
   type StorehouseFallbackProduct,
 } from '@/lib/storehouseCatalogFallbackServer';
-import { ALL_PRODUCTS } from '@/services/mockData';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -184,14 +183,8 @@ async function validateProducts(destination: Destination, inputs: FeedInput[]) {
     const titleKeys = prepared.map((item) => normalizeKey(item.title));
     if (destination === 'main-store') {
       const listings = await readRetailListings();
-      const existingSkus = new Set([
-        ...ALL_PRODUCTS.map((product) => text(product.sku).toUpperCase()),
-        ...listings.map((listing) => text(listing.sku).toUpperCase()),
-      ].filter(Boolean));
-      const existingTitles = new Set([
-        ...ALL_PRODUCTS.map((product) => normalizeKey(product.title)),
-        ...listings.map((listing) => normalizeKey(listing.title)),
-      ].filter(Boolean));
+      const existingSkus = new Set(listings.map((listing) => text(listing.sku).toUpperCase()).filter(Boolean));
+      const existingTitles = new Set(listings.map((listing) => normalizeKey(listing.title)).filter(Boolean));
       prepared.forEach((item) => {
         if (existingSkus.has(item.sku.toUpperCase())) errors.push({ row: item.rowNumber, message: `SKU already exists in the Main Store: ${item.sku}.` });
         else if (existingTitles.has(normalizeKey(item.title))) errors.push({ row: item.rowNumber, message: `Product title already exists in the Main Store: ${item.title}.` });

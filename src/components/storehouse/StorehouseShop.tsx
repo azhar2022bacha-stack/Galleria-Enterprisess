@@ -1,18 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowDown, ArrowLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
-import { STOREHOUSE_MAIN_CATEGORIES, TOTAL_MAIN_STOREHOUSE_PRODUCTS } from '@/data/storehouseMainCategories';
-import { queryUniqueDemoProducts } from '@/lib/mock-products';
-import { storehouseDemoToProduct } from '@/lib/storehouseProduct';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import { getStoreCategory } from '@/lib/storeCatalog';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { StorefrontProductCard } from '@/components/product/StorefrontProductCard';
-import type { Product } from '@/types';
-import type { SortOption } from '@/types/product';
 
 const PAGE_SIZE = 24;
 
@@ -22,53 +19,53 @@ const categoryClass = 'shrink-0 rounded-md border border-[#ded3c2] bg-[#fffdf9] 
 export default function StorehouseShop() {
   const searchParams = useSearchParams();
   const initialCategory = searchParams.get('category') || searchParams.get('catalogCategory') || '';
-  const [categorySlug, setCategorySlug] = useState(initialCategory);
+  const [category, setCategory] = useState(initialCategory);
   const [search, setSearch] = useState(searchParams.get('search') || '');
-  const [sort, setSort] = useState(searchParams.get('sort') === 'newest' ? 'name-desc' : 'default');
+  const [sort, setSort] = useState(searchParams.get('sort') === 'newest' ? 'newest' : 'default');
   const [page, setPage] = useState(1);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [totalCount, setTotalCount] = useState(TOTAL_MAIN_STOREHOUSE_PRODUCTS);
-  const [isLoading, setIsLoading] = useState(true);
+  const { categories, products: catalogProducts, isLoading, error } = useStorefrontCatalog();
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { products: compareProducts, toggleProduct: toggleCompareProduct, hasProduct: isInCompare, limit: compareLimit } = useCompare();
 
-  const selectedCategory = STOREHOUSE_MAIN_CATEGORIES.find((category) => category.slug === categorySlug);
-  const sortOption: SortOption = sort === 'price-low' ? 'price-asc' : sort === 'price-high' ? 'price-desc' : sort === 'name-asc' || sort === 'name-desc' ? sort : 'default';
+  const legacyCategorySlug = getStoreCategory(category)?.slug;
+  const selectedCategory = categories.find((item) => item.slug === category)
+    || categories.find((item) => item.slug === legacyCategorySlug);
+  const categorySlug = selectedCategory?.slug || category;
+  const matchingProducts = useMemo(() => {
+    const selection = categorySlug ? catalogProducts.filter((product) => product.storeCategorySlug === categorySlug) : catalogProducts;
+    const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matching = terms.length ? selection.filter((product) => {
+      const description = [product.title, product.brand, product.sku, product.description, product.category].join(' ').toLowerCase();
+      return terms.every((term) => description.includes(term));
+    }) : [...selection];
 
-  useEffect(() => {
-    const result = queryUniqueDemoProducts({
-      searchQuery: search,
-      category: selectedCategory?.name || 'All categories',
-      sortBy: sortOption,
-      page,
-      pageSize: PAGE_SIZE,
-    });
-    const pageProducts = result.products.map(storehouseDemoToProduct);
-    setProducts((current) => page === 1 ? pageProducts : [...current, ...pageProducts]);
-    setTotalCount(result.totalCount);
-    setIsLoading(false);
-  }, [categorySlug, page, search, sortOption, selectedCategory?.name]);
+    if (sort === 'newest') return matching.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (sort === 'price-low') return matching.sort((a, b) => a.price - b.price);
+    if (sort === 'price-high') return matching.sort((a, b) => b.price - a.price);
+    if (sort === 'name-asc') return matching.sort((a, b) => a.title.localeCompare(b.title));
+    if (sort === 'name-desc') return matching.sort((a, b) => b.title.localeCompare(a.title));
+    return matching;
+  }, [catalogProducts, categorySlug, search, sort]);
+  const totalCount = matchingProducts.length;
+  const products = matchingProducts.slice(0, page * PAGE_SIZE);
 
   const canLoadMore = products.length < totalCount;
 
   const changeCategory = (slug: string) => {
     if (slug === categorySlug) return;
-    setCategorySlug(slug);
+    setCategory(slug);
     setPage(1);
-    setProducts([]);
   };
 
   const changeSearch = (value: string) => {
     setSearch(value);
     setPage(1);
-    setProducts([]);
   };
 
   const changeSort = (value: string) => {
     setSort(value);
     setPage(1);
-    setProducts([]);
   };
 
   return (
@@ -85,18 +82,19 @@ export default function StorehouseShop() {
             <div>
               <h1 id="shop-title" className="font-serif text-3xl leading-tight tracking-[-0.055em] text-[#14263d] sm:text-4xl lg:text-5xl">{selectedCategory?.name || 'Shop all products'}</h1>
               <p className="mt-2 text-sm text-[#525b65]" aria-live="polite">
-                {search.trim() ? countLabel(totalCount) + ' matching products' : countLabel(selectedCategory?.catalogProductCount ?? TOTAL_MAIN_STOREHOUSE_PRODUCTS) + ' products'}
+                {!isLoading && !error && countLabel(totalCount) + (search.trim() ? ' matching products' : ' products')}
               </p>
             </div>
             <div className="flex w-full flex-wrap gap-2.5 sm:flex-nowrap lg:w-auto">
               <label className="relative block min-w-[12rem] flex-1 lg:w-72">
-                <span className="sr-only">Search Storehouse products</span>
+                <span className="sr-only">Search catalog products</span>
                 <Search size={17} strokeWidth={1.7} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#626a73]" />
                 <input value={search} onChange={(event) => changeSearch(event.target.value)} type="search" placeholder="Name, brand, or SKU" className="h-11 w-full rounded-md border border-[#d3c6b1] bg-[#fffdf9] pl-9 pr-2 text-base text-[#14263d] placeholder:text-[#666d76] focus:outline-none focus:ring-2 focus:ring-[#a77e43] sm:text-sm" />
               </label>
               <label className="sr-only" htmlFor="storehouse-sort">Sort products</label>
               <select id="storehouse-sort" value={sort} onChange={(event) => changeSort(event.target.value)} className="h-11 rounded-md border border-[#d3c6b1] bg-[#fffdf9] px-3 text-sm text-[#14263d] focus:outline-none focus:ring-2 focus:ring-[#a77e43]">
                 <option value="default">Catalog order</option>
+                <option value="newest">Newest arrivals</option>
                 <option value="price-low">Price: low to high</option>
                 <option value="price-high">Price: high to low</option>
                 <option value="name-asc">Name: A to Z</option>
@@ -106,22 +104,22 @@ export default function StorehouseShop() {
           </div>
         </section>
 
-        <section aria-label="Browse Storehouse categories" className="border-b border-[#e6ded0] py-5 sm:py-6">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#14263d]"><SlidersHorizontal size={16} strokeWidth={1.7} aria-hidden="true" className="text-[#806640]" /> Filter by department</h2>
+        {categories.length > 0 && <section aria-label="Browse store categories" className="border-b border-[#e6ded0] py-5 sm:py-6">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#14263d]"><SlidersHorizontal size={16} strokeWidth={1.7} aria-hidden="true" className="text-[#806640]" /> Filter by category</h2>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeCategory('')} aria-pressed={!categorySlug} className={categoryClass}>
-              All departments <span className="ml-1 opacity-75">{countLabel(TOTAL_MAIN_STOREHOUSE_PRODUCTS)}</span>
+              All Categories <span className="ml-1 opacity-75">{countLabel(catalogProducts.length)}</span>
             </button>
-            {STOREHOUSE_MAIN_CATEGORIES.map((category) => (
+            {categories.map((category) => (
               <button key={category.id} type="button" onClick={() => changeCategory(category.slug)} aria-pressed={categorySlug === category.slug} className={categoryClass}>
-                {category.name} <span className="ml-1 opacity-75">{countLabel(category.catalogProductCount || 0)}</span>
+                {category.name} <span className="ml-1 opacity-75">{countLabel(category.catalogProductCount)}</span>
               </button>
             ))}
           </div>
-        </section>
+        </section>}
 
         <div className="flex flex-wrap items-center justify-between gap-2 px-0.5 py-4 text-xs text-[#626a73]" aria-live="polite">
-          <span>Showing {countLabel(products.length)} of {countLabel(totalCount)} products</span>
+          <span>{!isLoading && !error && `Showing ${countLabel(products.length)} of ${countLabel(totalCount)} products`}</span>
           <span>Prices in USD</span>
         </div>
 
@@ -129,9 +127,13 @@ export default function StorehouseShop() {
           <p role="status" className="border border-[#e6ded0] bg-[#fffdf9] px-4 py-16 text-center text-sm text-[#626a73]">Loading products…</p>
         ) : products.length === 0 ? (
           <div className="border border-[#e6ded0] bg-[#fffdf9] px-4 py-16 text-center">
-            <h2 className="font-serif text-2xl text-[#14263d]">No products found</h2>
-            <p className="mt-2 text-sm text-[#626a73]">Try another search or browse a different department.</p>
-            <button type="button" onClick={() => { changeSearch(''); changeCategory(''); }} className="mt-5 min-h-11 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a77e43]">Clear filters</button>
+            <h2 className="font-serif text-2xl text-[#14263d]">{error ? 'Catalog unavailable' : catalogProducts.length ? 'No products found' : 'No products available yet'}</h2>
+            {error ? <p className="mt-2 text-sm text-[#626a73]">{error}</p> : (search || categorySlug) && (
+              <>
+                <p className="mt-2 text-sm text-[#626a73]">Try another search or browse a different category.</p>
+                <button type="button" onClick={() => { changeSearch(''); changeCategory(''); }} className="mt-5 min-h-11 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a77e43]">Clear filters</button>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -155,13 +157,12 @@ export default function StorehouseShop() {
                 );
               })}
             </div>
-            {canLoadMore && (
+            {(page > 1 || canLoadMore) && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                {page > 1 && <button type="button" onClick={() => { setPage((current) => Math.max(1, current - 1)); setProducts([]); }} className="inline-flex min-h-12 items-center gap-2 rounded-md border border-[#bda989] bg-[#fffdf9] px-5 text-sm font-semibold text-[#14263d] hover:border-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]"><ArrowLeft size={16} /> Previous page</button>}
-                <button type="button" onClick={() => setPage((current) => current + 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white transition hover:bg-[#203a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">Load more products <ArrowDown size={16} /></button>
+                {page > 1 && <button type="button" onClick={() => setPage((current) => current - 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md border border-[#bda989] bg-[#fffdf9] px-5 text-sm font-semibold text-[#14263d] hover:border-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]"><ArrowLeft size={16} /> Show fewer products</button>}
+                {canLoadMore && <button type="button" onClick={() => setPage((current) => current + 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white transition hover:bg-[#203a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">Load more products <ArrowDown size={16} /></button>}
               </div>
             )}
-            {!canLoadMore && products.length > PAGE_SIZE && <p className="mt-6 text-center text-sm text-[#626a73]">You’ve reached the end of this department.</p>}
           </>
         )}
       </div>

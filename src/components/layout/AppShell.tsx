@@ -8,6 +8,7 @@ import Footer from '@/components/layout/Footer';
 import Toast from '@/components/common/Toast';
 import { CompareTray } from '@/components/compare/CompareTray';
 import { WhatsAppShortcut } from '@/components/layout/WhatsAppShortcut';
+import { StorefrontCatalogProvider } from '@/context/StorefrontCatalogContext';
 import { withStorefrontCompanyInfo } from '@/lib/storefrontCompany';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
 
@@ -52,7 +53,7 @@ export default function AppShell({ children, initialWebsiteInfo }: { children: R
   }
 
   return (
-    <>
+    <StorefrontCatalogProvider>
       <AnnouncementBar websiteInfo={websiteInfo} />
       <Navbar websiteInfo={websiteInfo} />
       <main className="flex-1">{children}</main>
@@ -60,6 +61,6 @@ export default function AppShell({ children, initialWebsiteInfo }: { children: R
       <WhatsAppShortcut number={websiteInfo.whatsappNumber} />
       <CompareTray />
       <Toast />
-    </>
+    </StorefrontCatalogProvider>
   );
 }

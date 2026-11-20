@@ -14,47 +14,19 @@ import {
   ArrowLeft,
   Scale,
 } from 'lucide-react';
-import { ALL_PRODUCTS } from '@/services/mockData';
-import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
-import { filterProductsByActiveStoreTaxonomy } from '@/lib/storeCatalog';
-import type { Product } from '@/types';
-import { retailListingToProduct } from '@/lib/retailListingProduct';
+import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { CustomerProductReviews } from '@/components/product/CustomerProductReviews';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
-import { getStorehouseProductById } from '@/lib/storehouseProduct';
 
 export default function ProductDetailPage() {
   const params = useParams();
   const id = params?.id as string;
 
-  const [retailProducts, setRetailProducts] = useState<Product[]>([]);
-  const [loadingRetailProducts, setLoadingRetailProducts] = useState(true);
-  const [storeCategories, setStoreCategories] = useState<StoreCategoryData[]>(STORE_CATEGORIES as unknown as StoreCategoryData[]);
-  const [storeCategoriesLoaded, setStoreCategoriesLoaded] = useState(false);
-  useEffect(() => {
-    let active = true;
-    fetch('/api/store-categories', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load store categories.')))
-      .then((result) => { if (active && Array.isArray(result.categories)) setStoreCategories(result.categories); })
-      .catch(() => undefined)
-      .finally(() => { if (active) setStoreCategoriesLoaded(true); });
-    return () => { active = false; };
-  }, []);
-  useEffect(() => {
-    let active = true;
-    fetch('/api/retail-listings?scope=public', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load listing.')))
-      .then((result) => { if (active && Array.isArray(result.listings)) setRetailProducts(result.listings.map(retailListingToProduct)); })
-      .catch(() => { if (active) setRetailProducts([]); })
-      .finally(() => { if (active) setLoadingRetailProducts(false); });
-    return () => { active = false; };
-  }, []);
-  const product = storeCategoriesLoaded
-    ? getStorehouseProductById(id) || filterProductsByActiveStoreTaxonomy(ALL_PRODUCTS, storeCategories).find((p) => p.id === id) || retailProducts.find((p) => p.id === id)
-    : undefined;
+  const { products: catalogProducts, isLoading, error } = useStorefrontCatalog();
+  const product = catalogProducts.find((item) => item.id === id);
 
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
@@ -84,11 +56,11 @@ export default function ProductDetailPage() {
   }, [id]);
 
   if (!product) {
-    if (loadingRetailProducts || !storeCategoriesLoaded) return <div className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">Loading product details…</div>;
+    if (isLoading) return <div className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">Loading product details…</div>;
     return (
       <div className="mx-auto max-w-7xl px-4 py-24 text-center">
-        <h2 className="text-2xl font-serif font-bold text-[#0c1b33]">Product Not Found</h2>
-        <p className="text-sm text-gray-500 mt-2">The product you are looking for does not exist.</p>
+        <h2 className="text-2xl font-serif font-bold text-[#0c1b33]">{error ? 'Catalog unavailable' : 'Product Not Found'}</h2>
+        <p className="text-sm text-gray-500 mt-2">{error || 'The product you are looking for does not exist.'}</p>
         <Link
           href="/shop"
           className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-[#0c1b33] text-white rounded text-xs font-semibold"
@@ -105,8 +77,8 @@ export default function ProductDetailPage() {
   const reviewRating = reviewSummary.productId === product.id ? reviewSummary.average : 0;
   const canAddToCart = product.inStock && product.stockQuantity > 0;
   const productImages = [...new Set([product.image, ...(product.additionalImages || [])].filter(Boolean))];
-  const relatedProducts = [...filterProductsByActiveStoreTaxonomy(ALL_PRODUCTS, storeCategories), ...retailProducts].filter(
-    (p) => p.id !== product.id && p.categorySlug === product.categorySlug
+  const relatedProducts = catalogProducts.filter(
+    (p) => p.id !== product.id && (p.storeCategorySlug || p.categorySlug) === (product.storeCategorySlug || product.categorySlug)
   ).slice(0, 4);
 
   return (
@@ -119,7 +91,7 @@ export default function ProductDetailPage() {
           <span>/</span>
           <Link href="/shop" className="hover:text-[#c5a059] transition-colors">Shop</Link>
           <span>/</span>
-          <Link href={product.tags?.includes('storehouse-catalog') ? `/shop?category=${encodeURIComponent(product.categorySlug)}` : `/category/${product.categorySlug}`} className="hover:text-[#c5a059] transition-colors">
+          <Link href={product.storeCategorySlug ? `/category/${encodeURIComponent(product.storeCategorySlug)}` : '/shop'} className="hover:text-[#c5a059] transition-colors">
             {product.category}
           </Link>
           <span>/</span>

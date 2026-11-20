@@ -12,7 +12,11 @@ import {
 } from '@/lib/retailListingsServer';
 import type { RetailListing } from '@/lib/retailListings';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
-import { readStorehouseProductFeedCategories } from '@/lib/storehouseProductFeedCategoriesServer';
+import {
+  readStorehouseProductFeedCategories,
+  saveMissingStorehouseProductFeedTaxonomy,
+} from '@/lib/storehouseProductFeedCategoriesServer';
+import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
 import {
   findProductFeedTaxonomy, isProductFeedDestination, matchProductFeedTaxonomy,
   normalizeProductFeedKey as normalizeKey, PRODUCT_FEED_DESTINATION_NAMES,
@@ -174,11 +178,11 @@ async function validateProducts(destination: Destination, inputs: FeedInput[], s
       const matchingSubcategory = matchingCategory && (storehouseTaxonomy
         ? matchingCategory.subcategories.find((item) => item.slug === storehouseTaxonomy.subcategorySlug)
         : matchProductFeedTaxonomy(matchingCategory.subcategories, subcategory));
-      if (!matchingCategory || !matchingSubcategory) {
+      if (storehouseTaxonomy && (!matchingCategory || !matchingSubcategory)) {
         errors.push({ row: rowNumber, message: `Choose the corresponding Seller Storehouse category and subcategory for ${category.name} › ${subcategory.name}.` });
         return;
       }
-      storehouse = { category: matchingCategory, subcategory: matchingSubcategory };
+      storehouse = { category: matchingCategory ?? category, subcategory: matchingSubcategory ?? subcategory };
     }
 
     const skuKey = sku.toUpperCase();
@@ -504,6 +508,7 @@ async function publishRetailProducts(products: PreparedFeedProduct[], adminEmail
   }
 
   const client = await getPool().connect();
+  let restoreStorehouseTaxonomy: (() => void) | undefined;
   try {
     await client.query('BEGIN');
     if (allThree) await checkConsignImport(client, products);
@@ -526,10 +531,19 @@ async function publishRetailProducts(products: PreparedFeedProduct[], adminEmail
       if (inserted.rowCount !== products.length) throw new Error('Not all products could be saved to Consign.');
     }
     await writeRetailListingsInTransaction(client, [...additions, ...listings]);
+    if (batch) {
+      // Save catalog categories before the products are visible, and restore them if the transaction fails.
+      restoreStorehouseTaxonomy = saveMissingStorehouseProductFeedTaxonomy(products.map((product) => product.storehouse ?? product));
+    }
     await client.query('COMMIT');
     return { products: additions, ...(batch ? { batchId: batch.batchId, storageMode: 'postgresql' as const } : {}) };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
+    try {
+      restoreStorehouseTaxonomy?.();
+    } catch (restoreError) {
+      console.error('Could not restore Storehouse categories after the Product Feed import failed.', restoreError);
+    }
     throw error;
   } finally {
     client.release();
@@ -566,14 +580,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Choose the Seller Storehouse category and subcategory.' }, { status: 400 });
   }
 
-  try {
+  const { action, items, fileName: uploadName } = body;
+  const runUpload = async () => {
     if ((destination === 'all-three' || destination === 'consign') && (!process.env.DATABASE_URL?.trim() || !(await initDb()))) {
       return NextResponse.json({ success: false, error: `${PRODUCT_FEED_DESTINATION_NAMES[destination]} requires an active PostgreSQL connection. No products were saved.` }, { status: 503 });
     }
-    const { prepared, errors } = await validateProducts(destination, body.items, storehouseTaxonomy);
+    const { prepared, errors } = await validateProducts(destination, items, storehouseTaxonomy);
     const report = {
       success: errors.length === 0,
-      totalRows: body.items.length,
+      totalRows: items.length,
       validRows: prepared.length,
       errors: errors.slice(0, 50),
       destination,
@@ -581,13 +596,13 @@ export async function POST(request: Request) {
         storageMode: process.env.DATABASE_URL?.trim() && await initDb() ? 'postgresql' : 'local-file',
       } : {}),
     };
-    if (body.action === 'preview' || errors.length) {
+    if (action === 'preview' || errors.length) {
       return NextResponse.json({ ...report, ...(errors.length ? { error: 'Review the listed rows before importing.' } : {}) }, { status: errors.length ? 400 : 200 });
     }
 
     const imagePaths = await persistUploadedImages(prepared);
     try {
-      const fileName = text(body.fileName).slice(0, 160);
+      const fileName = text(uploadName).slice(0, 160);
       const saved = destination === 'consign'
         ? await saveToConsign(prepared)
         : destination === 'seller-storehouse'
@@ -598,6 +613,12 @@ export async function POST(request: Request) {
       await Promise.all(imagePaths.map((filePath) => fs.rm(filePath, { force: true })));
       throw error;
     }
+  };
+
+  try {
+    return await (destination === 'all-three' && action === 'commit'
+      ? withProductFeedCategoryWrite(runUpload)
+      : runUpload());
   } catch (error) {
     if (error instanceof FeedImportConflictError || error instanceof RetailListingsChangedError || (error as { code?: string } | null)?.code === '23505') {
       const message = error instanceof FeedImportConflictError || error instanceof RetailListingsChangedError

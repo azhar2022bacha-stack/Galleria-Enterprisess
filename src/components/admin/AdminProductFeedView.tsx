@@ -24,9 +24,9 @@ import {
 } from 'lucide-react';
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
 import {
-  isProductFeedDestination, matchProductFeedTaxonomy, normalizeProductFeedHeader as normalizeHeader,
+  isProductFeedDestination, normalizeProductFeedHeader as normalizeHeader,
   PRODUCT_FEED_DESTINATION_NAMES, REQUIRED_PRODUCT_FEED_COLUMNS,
-  type ProductFeedCategory as CategoryOption, type ProductFeedDestination as Destination, type ProductFeedTaxonomy,
+  type ProductFeedCategory as CategoryOption, type ProductFeedDestination as Destination,
 } from '@/lib/productFeed';
 
 type CategoryDestination = Extract<Destination, 'main-store' | 'seller-storehouse'>;
@@ -262,27 +262,6 @@ function TaxonomyPicker({
   );
 }
 
-function StorehouseTaxonomyPicker({ categories, value, onChange }: {
-  categories: CategoryOption[];
-  value: ProductFeedTaxonomy;
-  onChange: (value: ProductFeedTaxonomy) => void;
-}) {
-  const category = categories.find((item) => item.slug === value.categorySlug);
-  return (
-    <fieldset className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2">
-      <legend className="px-1 text-xs font-semibold text-slate-800">Seller Storehouse category</legend>
-      <label className="text-[11px] font-semibold text-slate-700">
-        Category
-        <TaxonomyPicker items={categories} value={value.categorySlug} onChange={(categorySlug) => onChange({ categorySlug, subcategorySlug: '' })} label="Seller Storehouse categories" placeholder="Select category" />
-      </label>
-      <label className="text-[11px] font-semibold text-slate-700">
-        Subcategory
-        <TaxonomyPicker key={value.categorySlug} items={category?.subcategories || []} value={value.subcategorySlug} onChange={(subcategorySlug) => onChange({ ...value, subcategorySlug })} label="Seller Storehouse subcategories" placeholder="Select subcategory" disabled={!category} />
-      </label>
-    </fieldset>
-  );
-}
-
 export function AdminProductFeedView({ notify }: { notify?: (message: string) => void }) {
   const [destination, setDestination] = useState<Destination>('main-store');
   const [destinationPreferenceLoaded, setDestinationPreferenceLoaded] = useState(false);
@@ -296,7 +275,6 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
   const [categoryLoadErrors, setCategoryLoadErrors] = useState<Partial<Record<CategoryDestination, string>>>({});
   const [refreshingCategories, setRefreshingCategories] = useState(false);
   const categoryRequestVersions = useRef<Record<CategoryDestination, number>>({ 'main-store': 0, 'seller-storehouse': 0 });
-  const [storehouseTaxonomy, setStorehouseTaxonomy] = useState<ProductFeedTaxonomy | null>(null);
   const [categoryManagerKind, setCategoryManagerKind] = useState<'category' | 'subcategory' | null>(null);
   const [categoryName, setCategoryName] = useState('');
   const [categoryParentSlug, setCategoryParentSlug] = useState('');
@@ -382,8 +360,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
   const categoryDestination = destination === 'seller-storehouse' ? 'seller-storehouse' : 'main-store';
   const refreshDestination = useCallback(() => {
     void refreshCategories(categoryDestination);
-    if (destination === 'all-three') void refreshCategories('seller-storehouse');
-  }, [categoryDestination, destination, refreshCategories]);
+  }, [categoryDestination, refreshCategories]);
 
   useEffect(() => {
     if (!destinationPreferenceLoaded) return;
@@ -418,25 +395,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
     selectedCsvCategory?.subcategories || [],
     (subcategory) => Boolean(selectedCsvCategory?.customSubcategorySlugs?.includes(subcategory.slug)),
   );
-  const primaryCategory = mode === 'single' ? selectedCategory : selectedCsvCategory;
-  const primarySubcategory = primaryCategory?.subcategories.find((item) => item.slug === (mode === 'single' ? subcategorySlug : csvSubcategorySlug));
-  const matchedStorehouseCategory = matchProductFeedTaxonomy(storehouseCategories, primaryCategory);
-  const matchedStorehouseSubcategory = matchedStorehouseCategory && matchProductFeedTaxonomy(matchedStorehouseCategory.subcategories, primarySubcategory);
-  const effectiveStorehouseTaxonomy = storehouseTaxonomy ?? {
-    categorySlug: matchedStorehouseCategory?.slug || '',
-    subcategorySlug: matchedStorehouseSubcategory?.slug || '',
-  };
-  const usesStorehousePicker = destination === 'all-three' && (mode === 'single' || csvCategoryMode === 'selected');
-  const selectedStorehouseCategory = storehouseCategories.find((item) => item.slug === effectiveStorehouseTaxonomy.categorySlug);
-  const validStorehouseChoice = Boolean(selectedStorehouseCategory?.subcategories.some((item) => item.slug === effectiveStorehouseTaxonomy.subcategorySlug));
   const destinationLabel = PRODUCT_FEED_DESTINATION_NAMES[destination];
-  const categoryLoadError = categoryLoadErrors[categoryDestination] || (destination === 'all-three' && categoryLoadErrors['seller-storehouse']);
-
-  const updateStorehouseTaxonomy = (value: ProductFeedTaxonomy) => {
-    setStorehouseTaxonomy(value);
-    setPreview(null);
-    setCsvError('');
-  };
+  const categoryLoadError = categoryLoadErrors[categoryDestination];
 
   const changeDestination = (nextDestination: Destination) => {
     setDestination(nextDestination);
@@ -444,7 +404,6 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
     setSubcategorySlug('');
     setCsvCategorySlug('');
     setCsvSubcategorySlug('');
-    setStorehouseTaxonomy(null);
     setPreview(null);
     setCsvError('');
     setNotice('');
@@ -528,7 +487,6 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
       setCategoryNotice(successMessage);
       setCategoryManagerKind(null);
       setPreview(null);
-      setStorehouseTaxonomy(null);
       setCategoryName('');
       setExistingCategory(null);
     } catch (error) {
@@ -572,7 +530,6 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
       if (kind === 'subcategory' && categorySlug === category.slug && subcategorySlug === subcategory?.slug) setSubcategorySlug('');
       if (kind === 'subcategory' && csvCategorySlug === category.slug && csvSubcategorySlug === subcategory?.slug) setCsvSubcategorySlug('');
       setPreview(null);
-      setStorehouseTaxonomy(null);
       const removedCount = Number(payload.deletedProducts || 0);
       const successMessage = payload.storehouseDatabaseSkipped
         ? `${label} removed from category lists${removedCount ? `; ${removedCount.toLocaleString()} local products removed` : ''}. Database-only product cleanup could not run while the catalog was offline.`
@@ -590,7 +547,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
     const response = await fetch('/api/admin/product-feed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, destination, fileName, items, ...(usesStorehousePicker ? { storehouseTaxonomy: effectiveStorehouseTaxonomy } : {}) }),
+      body: JSON.stringify({ action, destination, fileName, items }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok && !(action === 'preview' && Array.isArray(payload.errors))) {
@@ -816,22 +773,22 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
           <div><h2 className="text-sm font-bold text-slate-900">Add products</h2><p className="mt-1 text-xs text-slate-500">Enter one product or upload a CSV or PDF product table.</p></div>
           <div className="inline-flex rounded-xl bg-slate-100 p-1">
-            <button type="button" disabled={working || savingSingle} onClick={() => { setMode('single'); setNotice(''); setStorehouseTaxonomy(null); setPreview(null); }} className={`rounded-lg px-3.5 py-2 text-xs font-semibold ${mode === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>Single product</button>
-            <button type="button" disabled={working || savingSingle} onClick={() => { setMode('csv'); setNotice(''); setStorehouseTaxonomy(null); setPreview(null); }} className={`rounded-lg px-3.5 py-2 text-xs font-semibold ${mode === 'csv' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>CSV / PDF upload</button>
+            <button type="button" disabled={working || savingSingle} onClick={() => { setMode('single'); setNotice(''); setPreview(null); }} className={`rounded-lg px-3.5 py-2 text-xs font-semibold ${mode === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>Single product</button>
+            <button type="button" disabled={working || savingSingle} onClick={() => { setMode('csv'); setNotice(''); setPreview(null); }} className={`rounded-lg px-3.5 py-2 text-xs font-semibold ${mode === 'csv' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>CSV / PDF upload</button>
           </div>
         </div>
 
         {mode === 'single' ? (
           <form onSubmit={saveSingleProduct} className="space-y-5 p-5 sm:p-6">
-            {usesStorehousePicker && <p className="text-xs text-slate-600">Select the Main Store category and subcategory below. Consign Products uses the same category.</p>}
+            {destination === 'all-three' && <p className="text-xs text-slate-600">The selected category and subcategory apply to all three destinations.</p>}
             {destination === 'consign' && <p className="text-xs text-slate-600">Choose a category from the Main Store category list for this Consign product.</p>}
             {destination === 'consign' && categoryLoadError && <p role="alert" className="text-xs text-rose-700">{categoryLoadError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-xs font-semibold text-slate-700">Category <span className="text-rose-500">*</span>
-                <TaxonomyPicker key={destination} items={categories} value={categorySlug} onChange={(value) => { setCategorySlug(value); setSubcategorySlug(''); setStorehouseTaxonomy(null); }} label="categories" placeholder="Select category" />
+                <TaxonomyPicker key={destination} items={categories} value={categorySlug} onChange={(value) => { setCategorySlug(value); setSubcategorySlug(''); }} label="categories" placeholder="Select category" />
               </label>
               <label className="text-xs font-semibold text-slate-700">Subcategory <span className="text-rose-500">*</span>
-                <TaxonomyPicker key={`${destination}-${categorySlug}`} items={subcategories} value={subcategorySlug} onChange={(value) => { setSubcategorySlug(value); setStorehouseTaxonomy(null); }} label="subcategories" placeholder="Select subcategory" disabled={!selectedCategory} />
+                <TaxonomyPicker key={`${destination}-${categorySlug}`} items={subcategories} value={subcategorySlug} onChange={setSubcategorySlug} label="subcategories" placeholder="Select subcategory" disabled={!selectedCategory} />
               </label>
               <label className="text-xs font-semibold text-slate-700 sm:col-span-2">Product title <span className="text-rose-500">*</span>
                 <input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Lightweight Cabin Trolley Bag" className="mt-1.5 block h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal text-slate-800 outline-none focus:border-[#173759] focus:ring-2 focus:ring-[#173759]/10" />
@@ -853,7 +810,6 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
               </label>
             </div>
 
-            {usesStorehousePicker && <StorehouseTaxonomyPicker categories={storehouseCategories} value={effectiveStorehouseTaxonomy} onChange={updateStorehouseTaxonomy} />}
             <div className="grid gap-4 rounded-2xl bg-slate-50 p-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:p-5">
               <div>
                 <h3 className="text-xs font-bold text-slate-800">Product image <span className="text-rose-500">*</span></h3>
@@ -871,7 +827,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
             {notice && <div className={`flex items-start gap-2 rounded-xl px-3.5 py-3 text-xs ${notice.startsWith('Added') ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-700'}`}><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{notice}</div>}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
               <p className="text-[11px] text-slate-400">All prices are in USD. Products with duplicate titles or SKUs are blocked.</p>
-              <button disabled={savingSingle || !categories.length || (usesStorehousePicker && !validStorehouseChoice)} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#173759] px-5 text-xs font-bold text-white shadow-sm transition hover:bg-[#102943] disabled:cursor-not-allowed disabled:opacity-50">{savingSingle ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}Add product <ArrowRight className="h-3.5 w-3.5" /></button>
+              <button disabled={savingSingle || !selectedCategory || !subcategories.some((item) => item.slug === subcategorySlug)} type="submit" className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#173759] px-5 text-xs font-bold text-white shadow-sm transition hover:bg-[#102943] disabled:cursor-not-allowed disabled:opacity-50">{savingSingle ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}Add product <ArrowRight className="h-3.5 w-3.5" /></button>
             </div>
           </form>
         ) : (
@@ -893,7 +849,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
 
               <div className="border-t border-slate-200 pt-4">
                 <h3 className="text-xs font-bold text-slate-800">Categories for this upload</h3>
-                <p className="mt-1 text-[11px] text-slate-500">{destination === 'all-three' ? 'Consign Products uses the Main Store category. Choose the corresponding Seller Storehouse category if the names differ.' : 'Assign all rows to one category or use the category columns in the file.'}</p>
+                <p className="mt-1 text-[11px] text-slate-500">Assign all rows to one category or use the category columns in the file.</p>
                 {destination === 'consign' && <p className="mt-1 text-[11px] text-slate-500">Consigned Products uses the Main Store category list.</p>}
                 {destination === 'consign' && categoryLoadError && <p role="alert" className="mt-2 text-xs text-rose-700">{categoryLoadError}</p>}
                 <div className="mt-3 inline-flex flex-wrap rounded-lg bg-slate-200/70 p-1">
@@ -903,16 +859,15 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
                 {csvCategoryMode === 'selected' ? (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="text-[11px] font-semibold text-slate-700">Main category <span className="text-rose-500">*</span>
-                      <TaxonomyPicker key={destination} items={categories} value={csvCategorySlug} onChange={(value) => { setCsvCategorySlug(value); setCsvSubcategorySlug(''); setStorehouseTaxonomy(null); setPreview(null); setCsvError(''); }} label="main categories" placeholder="Select main category" />
+                      <TaxonomyPicker key={destination} items={categories} value={csvCategorySlug} onChange={(value) => { setCsvCategorySlug(value); setCsvSubcategorySlug(''); setPreview(null); setCsvError(''); }} label="main categories" placeholder="Select main category" />
                     </label>
                     <label className="text-[11px] font-semibold text-slate-700">Subcategory <span className="text-rose-500">*</span>
-                      <TaxonomyPicker key={`${destination}-${csvCategorySlug}`} items={csvSubcategories} value={csvSubcategorySlug} onChange={(value) => { setCsvSubcategorySlug(value); setStorehouseTaxonomy(null); setPreview(null); setCsvError(''); }} label="subcategories" placeholder="Select subcategory" disabled={!selectedCsvCategory} />
+                      <TaxonomyPicker key={`${destination}-${csvCategorySlug}`} items={csvSubcategories} value={csvSubcategorySlug} onChange={(value) => { setCsvSubcategorySlug(value); setPreview(null); setCsvError(''); }} label="subcategories" placeholder="Select subcategory" disabled={!selectedCsvCategory} />
                     </label>
-                    {usesStorehousePicker && <div className="sm:col-span-2"><StorehouseTaxonomyPicker categories={storehouseCategories} value={effectiveStorehouseTaxonomy} onChange={updateStorehouseTaxonomy} /></div>}
-                    {selectedCsvCategory && csvSubcategorySlug && <p className="text-[10px] text-slate-500 sm:col-span-2">All rows will use <strong>{selectedCsvCategory.name}</strong> › <strong>{csvSubcategories.find((item) => item.slug === csvSubcategorySlug)?.name}</strong> in {destination === 'all-three' ? 'Main Store and Consign Products' : destinationLabel}.</p>}
+                    {selectedCsvCategory && csvSubcategorySlug && <p className="text-[10px] text-slate-500 sm:col-span-2">All rows will use <strong>{selectedCsvCategory.name}</strong> › <strong>{csvSubcategories.find((item) => item.slug === csvSubcategorySlug)?.name}</strong> in {destination === 'all-three' ? 'all three destinations' : destinationLabel}.</p>}
                   </div>
                 ) : (
-                  <p className="mt-3 text-[10px] leading-5 text-slate-500">{destination === 'all-three' ? 'Each row needs a category and subcategory that match both stores. For different category names, use “Choose one category”.' : 'Each row needs a category and subcategory from the selected catalog.'}</p>
+                  <p className="mt-3 text-[10px] leading-5 text-slate-500">{destination === 'all-three' ? 'Each row needs a Main Store category and subcategory. The same pair will be used in all three destinations.' : 'Each row needs a category and subcategory from the selected catalog.'}</p>
                 )}
               </div>
             </section>
@@ -932,7 +887,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
               </div>
             </div>
 
-            {csvProducts.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><FileSpreadsheet className="h-4 w-4" /></span><div><p className="text-xs font-bold text-slate-800">{csvProducts.length.toLocaleString()} products found</p><p className="text-[10px] text-slate-500">Ready to check required fields and duplicates</p></div></div><button type="button" disabled={working || (csvCategoryMode === 'selected' && (!csvCategorySlug || !csvSubcategorySlug)) || (usesStorehousePicker && !validStorehouseChoice)} onClick={() => void validateCsv()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3.5 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-50">{working ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Validate file</button></div>}
+            {csvProducts.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><FileSpreadsheet className="h-4 w-4" /></span><div><p className="text-xs font-bold text-slate-800">{csvProducts.length.toLocaleString()} products found</p><p className="text-[10px] text-slate-500">Ready to check required fields and duplicates</p></div></div><button type="button" disabled={working || (csvCategoryMode === 'selected' && (!selectedCsvCategory || !csvSubcategories.some((item) => item.slug === csvSubcategorySlug)))} onClick={() => void validateCsv()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3.5 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-50">{working ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Validate file</button></div>}
 
             {csvProducts.length > 0 && <ProductFeedFilePreview products={csvProducts} />}
 

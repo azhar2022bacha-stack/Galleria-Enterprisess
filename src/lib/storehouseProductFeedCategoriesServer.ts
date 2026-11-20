@@ -1,5 +1,6 @@
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
 import { readProductFeedCategorySnapshot, writeProductFeedCategorySnapshot } from '@/lib/productFeedCategoryStorage';
+import type { ProductFeedSubcategory } from '@/lib/productFeed';
 
 export interface StorehouseFeedCategory {
   id: string;
@@ -73,7 +74,10 @@ export function writeStorehouseProductFeedCategoryOverrides(overrides: Storehous
 }
 
 export function readStorehouseProductFeedCategories(): StorehouseFeedCategory[] {
-  const overrides = readStorehouseProductFeedCategoryOverrides();
+  return storehouseProductFeedCategories(readStorehouseProductFeedCategoryOverrides());
+}
+
+function storehouseProductFeedCategories(overrides: StorehouseFeedCategoryOverrides): StorehouseFeedCategory[] {
   const deletedCategories = new Set(overrides.deletedCategories);
   const categories: StorehouseFeedCategory[] = STOREHOUSE_IMPORT_CATEGORIES.map((category) => ({
     id: category.id,
@@ -92,8 +96,10 @@ export function readStorehouseProductFeedCategories(): StorehouseFeedCategory[] 
     });
   }
   return categories.filter((category) => !deletedCategories.has(category.slug)).map((category) => {
-    const additions = overrides.subcategories[category.slug] || [];
-    const deletedSubcategories = new Set(overrides.deletedSubcategories[category.slug] || []);
+    const additions = Object.hasOwn(overrides.subcategories, category.slug) ? overrides.subcategories[category.slug] : [];
+    const deletedSubcategories = new Set(
+      Object.hasOwn(overrides.deletedSubcategories, category.slug) ? overrides.deletedSubcategories[category.slug] : [],
+    );
     const seen = new Set(category.subcategories.map((item) => item.slug));
     const customSubcategories = additions.filter((item) => {
       if (seen.has(item.slug)) return false;
@@ -109,6 +115,47 @@ export function readStorehouseProductFeedCategories(): StorehouseFeedCategory[] 
       ].filter((item) => !deletedSubcategories.has(item.slug)),
     };
   });
+}
+
+export function saveMissingStorehouseProductFeedTaxonomy(pairs: {
+  category: ProductFeedSubcategory;
+  subcategory: ProductFeedSubcategory;
+}[]): (() => void) | undefined {
+  const previous = readStorehouseProductFeedCategoryOverrides();
+  const active = new Map(storehouseProductFeedCategories(previous).map((category) => [
+    category.slug, new Set(category.subcategories.map((subcategory) => subcategory.slug)),
+  ]));
+  const missing = pairs.filter(({ category, subcategory }) => !active.get(category.slug)?.has(subcategory.slug));
+  if (!missing.length) return;
+
+  const known = new Map(storehouseProductFeedCategories({
+    ...previous, deletedCategories: [], deletedSubcategories: {},
+  }).map((category) => [category.slug, new Set(category.subcategories.map((subcategory) => subcategory.slug))]));
+  const next: StorehouseFeedCategoryOverrides = {
+    categories: [...previous.categories],
+    subcategories: Object.assign(Object.create(null), previous.subcategories),
+    deletedCategories: [...previous.deletedCategories],
+    deletedSubcategories: Object.assign(Object.create(null), previous.deletedSubcategories),
+  };
+  for (const { category, subcategory } of missing) {
+    let knownSubcategories = known.get(category.slug);
+    if (!knownSubcategories) {
+      next.categories.push({ id: `feed-${category.slug}`, name: category.name, slug: category.slug });
+      knownSubcategories = new Set();
+      known.set(category.slug, knownSubcategories);
+    }
+    if (!knownSubcategories.has(subcategory.slug)) {
+      next.subcategories[category.slug] = [...(next.subcategories[category.slug] || []), subcategory];
+      knownSubcategories.add(subcategory.slug);
+    }
+    next.deletedCategories = next.deletedCategories.filter((slug) => slug !== category.slug);
+    if (next.deletedSubcategories[category.slug]?.includes(subcategory.slug)) {
+      next.deletedSubcategories[category.slug] = next.deletedSubcategories[category.slug].filter((slug) => slug !== subcategory.slug);
+    }
+  }
+
+  writeStorehouseProductFeedCategoryOverrides(next);
+  return () => writeStorehouseProductFeedCategoryOverrides(previous);
 }
 
 export function readStorehouseProductFeedCategoryDeletionState(): {

@@ -117,10 +117,6 @@ export const companyResearchDossier: {
               "If Net 30 terms are granted, payment must be by check."
             ]
           ]
-        },
-        {
-          "type": "note",
-          "text": "A separate website using the same company name and address (shopstoredeals4u.com) gives slightly different wording for per-style minimums and office hours. The wholesale website reviewed in the report is the primary source for the figures above. Confirm the current terms on a written quotation or invoice before ordering."
         }
       ]
     },

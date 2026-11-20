@@ -50,16 +50,28 @@ export function AdminStorefrontOrdersView() {
 
   const markCashCollected = async (order: StorefrontOrderRecord) => {
     if (!window.confirm(`Confirm that cash for order ${order.orderNumber} was collected at delivery?`)) return;
+    await recordPayment(order, 'mark-cod-collected');
+  };
+
+  const markCryptoReceived = async (order: StorefrontOrderRecord) => {
+    const payment = order.cryptoPayment;
+    if (!payment) return;
+    const transactionId = window.prompt(`After verifying receipt of ${payment.amount} ${payment.token} on ${payment.chain}, enter the confirmed transaction ID.`)?.trim();
+    if (!transactionId) return;
+    await recordPayment(order, 'mark-crypto-received', transactionId);
+  };
+
+  const recordPayment = async (order: StorefrontOrderRecord, action: 'mark-cod-collected' | 'mark-crypto-received', transactionId?: string) => {
     setSavingId(order.id);
     setError('');
     try {
-      const response = await fetch('/api/storefront-orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark-cod-collected', id: order.id }) });
+      const response = await fetch('/api/storefront-orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id: order.id, transactionId }) });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to record cash collection.');
+      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to record payment.');
       setOrders((current) => current.map((item) => item.id === order.id ? result.order : item));
       setFulfillmentDrafts((current) => ({ ...current, [order.id]: { ...(current[order.id] || { trackingCarrier: '', trackingNumber: '', trackingUrl: '' }), orderStatus: result.order.orderStatus } }));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to record cash collection.');
+      setError(saveError instanceof Error ? saveError.message : 'Unable to record payment.');
     } finally {
       setSavingId('');
     }
@@ -75,7 +87,7 @@ export function AdminStorefrontOrdersView() {
     <div className="mx-auto max-w-7xl space-y-5 pb-12">
       <header className="rounded-2xl bg-[#071324] p-6 text-white shadow-lg sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#d4ae5e]/35 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#e6c77f]"><ShieldCheck className="h-3.5 w-3.5" /> Marketplace operations</div><h1 className="font-serif text-3xl sm:text-4xl">Storefront orders</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Manage card payment status, Cash on Delivery collection, fulfillment stages, and carrier tracking for storefront orders.</p></div>
+          <div><div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#d4ae5e]/35 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#e6c77f]"><ShieldCheck className="h-3.5 w-3.5" /> Marketplace operations</div><h1 className="font-serif text-3xl sm:text-4xl">Storefront orders</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Manage payments, fulfillment, and tracking for storefront orders.</p></div>
           <div className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-3"><div className="text-2xl font-bold">{orders.length}</div><div className="text-[10px] text-slate-300">total requests</div></div>
         </div>
       </header>
@@ -111,6 +123,19 @@ export function AdminStorefrontOrdersView() {
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><h4 className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Ship to</h4><p className="mt-2 text-xs leading-5 text-slate-700">{order.shippingAddress.fullName}<br />{order.shippingAddress.street}{order.shippingAddress.apartment ? `, ${order.shippingAddress.apartment}` : ''}<br />{[order.shippingAddress.city, order.shippingAddress.state, order.shippingAddress.zipCode].filter(Boolean).join(', ')}<br />{order.shippingAddress.country}<br />{order.shippingAddress.phoneNumber}</p></div>
                 </div>
+                {order.cryptoPayment && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-slate-700">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-slate-900">Crypto payment</h4>
+                      <p className="mt-1">{order.cryptoPayment.amount} {order.cryptoPayment.token} on {order.cryptoPayment.chain} · {order.cryptoPayment.networkName}</p>
+                      <p className="mt-1 break-all font-mono">{order.cryptoPayment.address}</p>
+                      {order.cryptoPayment.transactionId && <p className="mt-1 break-all">Transaction ID <strong className="font-mono">{order.cryptoPayment.transactionId}</strong></p>}
+                    </div>
+                    {order.paymentStatus === 'PENDING' && order.orderStatus === 'PENDING' && (
+                      <button type="button" disabled={savingId === order.id} onClick={() => void markCryptoReceived(order)} className="rounded-lg bg-emerald-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Verify and mark as received</button>
+                    )}
+                  </div>
+                </div>}
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h4 className="text-xs font-bold text-slate-800">Fulfillment & tracking</h4>{order.paymentMethod === 'Cash on Delivery' && order.paymentStatus !== 'PAID' && order.orderStatus !== 'CANCELLED' && <button type="button" disabled={savingId === order.id} onClick={() => void markCashCollected(order)} className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">{savingId === order.id ? 'Saving…' : 'Mark cash collected'}</button>}</div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -119,7 +144,7 @@ export function AdminStorefrontOrdersView() {
                     <label className="text-[10px] font-semibold text-slate-600">Tracking number<input value={fulfillmentDrafts[order.id]?.trackingNumber ?? order.trackingNumber ?? ''} onChange={(event) => setFulfillmentDrafts((current) => ({ ...current, [order.id]: { ...(current[order.id] || { orderStatus: order.orderStatus, trackingCarrier: '', trackingUrl: '' }), trackingNumber: event.target.value } }))} placeholder="Carrier reference" className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800" /></label>
                     <label className="text-[10px] font-semibold text-slate-600">Tracking URL<input type="url" value={fulfillmentDrafts[order.id]?.trackingUrl ?? order.trackingUrl ?? ''} onChange={(event) => setFulfillmentDrafts((current) => ({ ...current, [order.id]: { ...(current[order.id] || { orderStatus: order.orderStatus, trackingCarrier: '', trackingNumber: '' }), trackingUrl: event.target.value } }))} placeholder="https://carrier.example/track" className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800" /></label>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] leading-4 text-slate-500">Card orders cannot ship before payment clears. COD is collected at delivery. Add the carrier link manually.</p><button type="button" disabled={savingId === order.id} onClick={() => void saveFulfillment(order)} className="rounded-lg bg-[#14263d] px-3.5 py-2 text-[10px] font-bold text-white disabled:opacity-50">{savingId === order.id ? 'Saving…' : 'Save fulfillment'}</button></div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] leading-4 text-slate-500">Confirm card and crypto payments before shipping. Collect COD at delivery.</p><button type="button" disabled={savingId === order.id} onClick={() => void saveFulfillment(order)} className="rounded-lg bg-[#14263d] px-3.5 py-2 text-[10px] font-bold text-white disabled:opacity-50">{savingId === order.id ? 'Saving…' : 'Save fulfillment'}</button></div>
                 </div>
               </article>
             ))}

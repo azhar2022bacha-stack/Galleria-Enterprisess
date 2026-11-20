@@ -5,6 +5,7 @@ import type { StoreCategoryData } from '@/data/storeCategories';
 import type { RetailListing } from '@/lib/retailListings';
 import { retailListingToProduct } from '@/lib/retailListingProduct';
 import { filterProductsByActiveStoreTaxonomy, getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
+import { isReplacementCatalogCategory } from '@/data/catalogCategoryReplacements';
 import type { Product } from '@/types';
 
 type CatalogCategory = StoreCategoryData & { catalogProductCount: number };
@@ -22,7 +23,7 @@ function buildCatalog(listings: RetailListing[], taxonomy: StoreCategoryData[]):
   const categorySlugs = new Set(taxonomy.map((category) => category.slug));
   const products = filterProductsByActiveStoreTaxonomy(listings.map((listing) => {
     const product = retailListingToProduct(listing);
-    const storeCategorySlug = listing.categorySlug || getStoreTaxonomyForProduct(product).categorySlug
+    const storeCategorySlug = getStoreTaxonomyForProduct(product).categorySlug
       || (categorySlugs.has(product.categorySlug) ? product.categorySlug : undefined);
     return { ...product, storeCategorySlug, createdAt: listing.createdAt || '' };
   }), taxonomy);
@@ -46,7 +47,8 @@ function buildCatalog(listings: RetailListing[], taxonomy: StoreCategoryData[]):
       published?.has(subcategory.slug) || category.customSubcategorySlugs?.includes(subcategory.slug)
     ));
     return { ...category, subcategories, catalogProductCount: categoryCounts.get(category.slug) ?? 0 };
-  }).filter((category) => category.isCustom || category.catalogProductCount > 0 || category.subcategories.length > 0);
+  }).filter((category) => isReplacementCatalogCategory(category.slug) || category.isCustom
+    || category.catalogProductCount > 0 || category.subcategories.length > 0);
 
   return { categories, products };
 }

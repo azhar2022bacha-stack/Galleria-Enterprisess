@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'crypto';
 import { getRequestAdmin } from '@/lib/adminSession';
-import { readRetailListings, RetailListingsChangedError, writeRetailListingsAtomically } from '@/lib/retailListingsServer';
+import { filterPublishedRetailListings, readRetailListings, RetailListingsChangedError, writeRetailListingsAtomically } from '@/lib/retailListingsServer';
 import type { RetailListing } from '@/lib/retailListings';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
@@ -77,8 +77,7 @@ export async function GET(request: Request) {
   const listings = await readRetailListings();
 
   if (scope === 'public') {
-    return NextResponse.json({ success: true, listings: listings
-      .filter((item) => item.status === 'published')
+    return NextResponse.json({ success: true, listings: filterPublishedRetailListings(listings)
       .map(({ sellerEmail: _sellerEmail, rejectionNote: _rejectionNote, pendingChanges: _pendingChanges, ...item }) => item) });
   }
 
@@ -86,7 +85,7 @@ export async function GET(request: Request) {
     const storeSlug = searchParams.get('slug') || '';
     if (!storeSlug) return NextResponse.json({ success: false, error: 'Store name is required.' }, { status: 400 });
     const storeHash = sellerHashFromSlug(storeSlug);
-    const storeListings = listings.filter((item) => item.status === 'published' && (
+    const storeListings = filterPublishedRetailListings(listings).filter((item) => (
       item.sellerSlug === storeSlug || Boolean(storeHash && sellerHashFromSlug(item.sellerSlug) === storeHash)
     ))
       .map(({ sellerEmail: _sellerEmail, rejectionNote: _rejectionNote, pendingChanges: _pendingChanges, ...item }) => item);

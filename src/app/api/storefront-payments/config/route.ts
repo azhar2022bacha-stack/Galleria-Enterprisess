@@ -9,6 +9,7 @@ export async function GET() {
     methods: {
       cashOnDelivery: true,
       card: isStripeCheckoutConfigured(),
+      crypto: storefrontCurrency() === 'usd',
     },
     currency: storefrontCurrency(),
   });

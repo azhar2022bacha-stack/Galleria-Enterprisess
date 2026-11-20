@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { randomBytes, randomUUID } from 'crypto';
 import { getRequestAdmin } from '@/lib/adminSession';
-import { readRetailListings } from '@/lib/retailListingsServer';
+import { filterPublishedRetailListings, readRetailListings } from '@/lib/retailListingsServer';
 import { readStorefrontOrders, writeStorefrontOrders } from '@/lib/storefrontOrdersServer';
 import { calculatePromotion } from '@/lib/storefrontPromotionsServer';
-import { createStripeCheckoutSession, expireStripeCheckoutSession, isStripeCheckoutConfigured } from '@/lib/stripeCheckout';
+import { createStripeCheckoutSession, expireStripeCheckoutSession, isStripeCheckoutConfigured, storefrontCurrency } from '@/lib/stripeCheckout';
+import { normalizeCryptoTransactionId, storefrontCryptoNetwork } from '@/lib/storefrontCrypto';
 import { getSellerPublicStoreBySlug } from '@/lib/sellerPublicStoreServer';
 import type { Address, Product } from '@/types';
 import type { StorefrontOrderItem, StorefrontOrderRecord } from '@/lib/storefrontOrders';
@@ -112,6 +113,29 @@ export async function PATCH(request: Request) {
   const current = orders[index];
   const now = new Date().toISOString();
 
+  if (body?.action === 'mark-crypto-received') {
+    const payment = current.cryptoPayment;
+    if (current.paymentMethod !== 'Crypto' || !payment) return NextResponse.json({ success: false, error: 'Choose an order with a crypto payment.' }, { status: 400 });
+    const transactionId = normalizeCryptoTransactionId(body.transactionId);
+    if (!transactionId) return NextResponse.json({ success: false, error: 'Enter a valid blockchain transaction ID.' }, { status: 400 });
+    if (current.paymentStatus === 'PAID' && payment.transactionId === transactionId) {
+      return NextResponse.json({ success: true, order: current });
+    }
+    if (current.paymentStatus !== 'PENDING' || current.orderStatus !== 'PENDING') {
+      return NextResponse.json({ success: false, error: 'Only pending crypto orders can be marked as received.' }, { status: 409 });
+    }
+    if (orders.some((order) => order.id !== current.id && order.cryptoPayment?.chain === payment.chain
+      && order.cryptoPayment?.transactionId === transactionId)) {
+      return NextResponse.json({ success: false, error: 'This blockchain transaction was already recorded on another order.' }, { status: 409 });
+    }
+    orders[index] = {
+      ...current, paymentStatus: 'PAID', orderStatus: 'PROCESSING', status: 'processing', updatedAt: now,
+      cryptoPayment: { ...payment, transactionId, verifiedAt: now },
+    };
+    writeStorefrontOrders(orders);
+    return NextResponse.json({ success: true, order: orders[index] });
+  }
+
   if (body?.action === 'mark-cod-collected') {
     if (current.paymentMethod !== 'Cash on Delivery') return NextResponse.json({ success: false, error: 'Cash collection can only be recorded for Cash on Delivery orders.' }, { status: 400 });
     if (current.status === 'cancelled') return NextResponse.json({ success: false, error: 'Cancelled orders cannot be marked as collected.' }, { status: 409 });
@@ -143,7 +167,7 @@ export async function PATCH(request: Request) {
     catch (expireError) { return NextResponse.json({ success: false, error: expireError instanceof Error ? expireError.message : 'Unable to expire the card checkout session.' }, { status: 409 }); }
   }
   if (['PROCESSING', 'SHIPPED', 'DELIVERED'].includes(orderStatus) && current.paymentStatus !== 'PAID' && current.paymentMethod !== 'Cash on Delivery') {
-    return NextResponse.json({ success: false, error: 'Card orders must be paid before fulfillment.' }, { status: 409 });
+    return NextResponse.json({ success: false, error: 'Payment must be confirmed before fulfillment.' }, { status: 409 });
   }
   const trackingCarrier = body?.trackingCarrier === undefined ? current.trackingCarrier : String(body.trackingCarrier || '').trim().slice(0, 80) || undefined;
   const trackingNumber = body?.trackingNumber === undefined ? current.trackingNumber : String(body.trackingNumber || '').trim().slice(0, 120) || undefined;
@@ -163,11 +187,15 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ success: false, error: 'Invalid order request.' }, { status: 400 }); }
   const requestedPaymentMethod = body?.paymentMethod || 'cash_on_delivery';
-  if (!['cash_on_delivery', 'card'].includes(requestedPaymentMethod)) {
-    return NextResponse.json({ success: false, error: 'Choose Cash on Delivery or card payment.' }, { status: 400 });
+  if (!['cash_on_delivery', 'card', 'crypto'].includes(requestedPaymentMethod)) {
+    return NextResponse.json({ success: false, error: 'Choose Cash on Delivery, card, or crypto payment.' }, { status: 400 });
   }
   if (requestedPaymentMethod === 'card' && !isStripeCheckoutConfigured()) {
-    return NextResponse.json({ success: false, error: 'Card payments are not configured yet. Choose Cash on Delivery or contact the store.' }, { status: 503 });
+    return NextResponse.json({ success: false, error: 'Card payments require gateway setup. Choose another payment method to continue.' }, { status: 503 });
+  }
+  const cryptoNetwork = requestedPaymentMethod === 'crypto' ? storefrontCryptoNetwork(body.cryptoNetworkId) : undefined;
+  if (requestedPaymentMethod === 'crypto' && (!cryptoNetwork || storefrontCurrency() !== 'usd')) {
+    return NextResponse.json({ success: false, error: 'Choose an available crypto network for your USD order.' }, { status: 400 });
   }
   if (!isValidEmail(body?.buyerEmail) || !Array.isArray(body?.items) || body.items.length < 1 || body.items.length > 100) {
     return NextResponse.json({ success: false, error: 'Enter a valid email and include between 1 and 100 products.' }, { status: 400 });
@@ -176,7 +204,7 @@ export async function POST(request: Request) {
   if (!shippingAddress) return NextResponse.json({ success: false, error: 'Complete the required shipping address and phone fields.' }, { status: 400 });
 
   const listings = await readRetailListings();
-  const listingById = new Map(listings.filter((listing) => listing.status === 'published').map((listing) => [listing.id, listing]));
+  const listingById = new Map(filterPublishedRetailListings(listings).map((listing) => [listing.id, listing]));
   const aggregated = new Map<string, number>();
   const normalizedItems: { id: string; quantity: number; displayedPrice?: number; selectedColor?: string; selectedSize?: string }[] = [];
   for (const item of body.items) {
@@ -313,6 +341,10 @@ export async function POST(request: Request) {
   }
   const createdAt = new Date().toISOString();
   const orderNumber = `GAL-${randomBytes(8).toString('hex').toUpperCase()}`;
+  const totalAmount = Math.round((subtotal - discountAmount) * 100) / 100;
+  if (cryptoNetwork && totalAmount <= 0) {
+    return NextResponse.json({ success: false, error: 'Choose Cash on Delivery for a zero-total order.' }, { status: 400 });
+  }
   const order: StorefrontOrderRecord = {
     id: randomUUID(),
     orderNumber,
@@ -322,12 +354,16 @@ export async function POST(request: Request) {
     subtotalAmount: subtotal,
     discountAmount,
     promotionCode,
-    totalAmount: Math.round((subtotal - discountAmount) * 100) / 100,
+    totalAmount,
     shippingAddress,
-    paymentMethod: requestedPaymentMethod === 'card' ? 'Card (Visa/Mastercard)' : 'Cash on Delivery',
+    paymentMethod: cryptoNetwork ? 'Crypto' : requestedPaymentMethod === 'card' ? 'Card (Visa/Mastercard)' : 'Cash on Delivery',
+    ...(cryptoNetwork ? { cryptoPayment: {
+      networkId: cryptoNetwork.id, networkName: cryptoNetwork.name, chain: cryptoNetwork.chain,
+      token: cryptoNetwork.token, address: cryptoNetwork.address, amount: totalAmount.toFixed(2),
+    } } : {}),
     paymentStatus: 'PENDING',
     orderStatus: 'PENDING',
-    status: requestedPaymentMethod === 'card' ? 'payment_pending' : 'cod_pending',
+    status: requestedPaymentMethod === 'cash_on_delivery' ? 'cod_pending' : 'payment_pending',
     createdAt,
   };
   let checkoutUrl: string | undefined;
@@ -365,9 +401,10 @@ export async function POST(request: Request) {
     subtotalAmount: subtotal,
     discountAmount,
     promotionCode,
-    totalAmount: Math.round((subtotal - discountAmount) * 100) / 100,
+    totalAmount,
     shippingAddress,
     paymentMethod: order.paymentMethod,
+    cryptoPayment: order.cryptoPayment,
     paymentStatus: order.paymentStatus,
     orderStatus: order.orderStatus,
     trackingCarrier: order.trackingCarrier,

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import type { StorefrontOrderRecord } from '@/lib/storefrontOrders';
 
 const ORDERS_FILE = path.join(process.cwd(), 'src', 'data', 'storefront_orders.json');
@@ -21,5 +22,11 @@ export function readStorefrontOrders(): StorefrontOrderRecord[] {
 
 export function writeStorefrontOrders(orders: StorefrontOrderRecord[]) {
   ensureOrdersFile();
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), 'utf8');
+  const temporary = `${ORDERS_FILE}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(orders, null, 2), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporary, ORDERS_FILE);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }

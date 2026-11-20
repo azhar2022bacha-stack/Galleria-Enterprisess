@@ -1,4 +1,5 @@
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
+import { addCatalogCategoryDefaults, replaceCatalogCategories } from '@/data/catalogCategoryReplacements';
 import { readProductFeedCategorySnapshot, writeProductFeedCategorySnapshot } from '@/lib/productFeedCategoryStorage';
 import type { ProductFeedSubcategory } from '@/lib/productFeed';
 
@@ -95,7 +96,7 @@ function storehouseProductFeedCategories(overrides: StorehouseFeedCategoryOverri
       subcategories: [],
     });
   }
-  return categories.filter((category) => !deletedCategories.has(category.slug)).map((category) => {
+  const activeCategories = addCatalogCategoryDefaults(categories).filter((category) => !deletedCategories.has(category.slug)).map((category) => {
     const additions = Object.hasOwn(overrides.subcategories, category.slug) ? overrides.subcategories[category.slug] : [];
     const deletedSubcategories = new Set(
       Object.hasOwn(overrides.deletedSubcategories, category.slug) ? overrides.deletedSubcategories[category.slug] : [],
@@ -115,6 +116,7 @@ function storehouseProductFeedCategories(overrides: StorehouseFeedCategoryOverri
       ].filter((item) => !deletedSubcategories.has(item.slug)),
     };
   });
+  return replaceCatalogCategories(activeCategories, overrides.deletedCategories, overrides.deletedSubcategories);
 }
 
 export function saveMissingStorehouseProductFeedTaxonomy(pairs: {

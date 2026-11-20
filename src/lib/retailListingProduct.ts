@@ -2,16 +2,18 @@ import type { Product } from '@/types';
 import type { RetailListing } from '@/lib/retailListings';
 import { CATEGORIES } from '@/services/mockData';
 import { STORE_CATEGORIES } from '@/data/storeCategories';
+import { catalogCategoryName, catalogCategorySlug } from '@/data/catalogCategoryReplacements';
 
 export function retailListingToProduct(listing: RetailListing): Product {
   const storeCategory = STORE_CATEGORIES.find((category) => category.slug === listing.categorySlug || category.name === listing.category);
   const legacyCategory = CATEGORIES.find((category) => category.name === listing.category);
-  const categorySlug = storeCategory?.slug || listing.categorySlug || legacyCategory?.slug || listing.category
+  const sourceSlug = storeCategory?.slug || listing.categorySlug || legacyCategory?.slug || listing.category
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+  const categorySlug = catalogCategorySlug(sourceSlug);
 
   return {
     id: listing.id,
@@ -21,9 +23,9 @@ export function retailListingToProduct(listing: RetailListing): Product {
     rating: 0,
     reviewCount: 0,
     description: listing.description,
-    category: listing.category,
+    category: catalogCategoryName(sourceSlug, listing.category),
     categorySlug,
-    storeCategorySlug: storeCategory?.slug || listing.categorySlug,
+    storeCategorySlug: storeCategory || listing.categorySlug || categorySlug !== sourceSlug ? categorySlug : undefined,
     subcategory: listing.subcategory,
     subcategorySlug: listing.subcategorySlug,
     model: listing.model,

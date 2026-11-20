@@ -2,22 +2,23 @@ import fs from 'fs';
 import path from 'path';
 import {
   CRYPTO_RECEIVING_NETWORKS,
+  DEFAULT_USDT_BEP20_RECEIVING_ADDRESS,
+  SELLER_CRYPTO_DEPOSIT_NETWORKS,
   type CryptoReceivingAddressConfig,
   type CryptoReceivingAddressMap,
-  type CryptoReceivingNetworkId,
 } from '@/lib/cryptoReceivingAddresses';
 
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'crypto_receiving_addresses.json');
 
 function emptyConfig(): CryptoReceivingAddressConfig {
-  return { addresses: {}, sellerOverrides: {} };
+  return { addresses: { usdt_bep20: DEFAULT_USDT_BEP20_RECEIVING_ADDRESS }, sellerOverrides: {} };
 }
 
 export function readCryptoReceivingAddressConfig(): CryptoReceivingAddressConfig {
   try {
     if (!fs.existsSync(DATA_FILE)) return emptyConfig();
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    const addresses: CryptoReceivingAddressMap = {};
+    const { addresses } = emptyConfig();
     const sellerOverrides: Record<string, CryptoReceivingAddressMap> = {};
 
     for (const network of CRYPTO_RECEIVING_NETWORKS) {
@@ -57,6 +58,6 @@ export function getSellerCryptoReceivingAddresses(
   const email = sellerEmail.trim().toLowerCase();
   const overrides = config.sellerOverrides[email] || {};
   return Object.fromEntries(
-    CRYPTO_RECEIVING_NETWORKS.map(({ id }) => [id, overrides[id] || config.addresses[id] || ''])
-  ) as Record<CryptoReceivingNetworkId, string>;
+    SELLER_CRYPTO_DEPOSIT_NETWORKS.map(({ id }) => [id, overrides[id] || config.addresses[id] || ''])
+  ) as CryptoReceivingAddressMap;
 }

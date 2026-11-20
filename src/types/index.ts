@@ -138,6 +138,7 @@ export interface Order {
   shippingAddress: Address;
   paymentMethod: string;
   paymentStatus: 'PAID' | 'PENDING' | 'FAILED';
+  cryptoPayment?: import('@/lib/storefrontCrypto').StorefrontCryptoPayment;
   orderStatus: OrderStatus;
   createdAt: string;
   trackingCarrier?: string;

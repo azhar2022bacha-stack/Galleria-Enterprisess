@@ -22,7 +22,7 @@ import {
   ResaleSettlement,
 } from '@/lib/sellerOrders';
 import { sendSellerNotification } from '@/lib/sellerNotifications';
-import { CRYPTO_RECEIVING_NETWORKS, type CryptoReceivingAddressMap } from '@/lib/cryptoReceivingAddresses';
+import { SELLER_CRYPTO_DEPOSIT_NETWORKS, type CryptoReceivingAddressMap } from '@/lib/cryptoReceivingAddresses';
 
 interface SellerWalletPanelProps {
   onOpenSupport?: () => void;
@@ -31,7 +31,7 @@ interface SellerWalletPanelProps {
   capitalInStock?: number;
 }
 
-const CRYPTO_TOP_UP_METHODS = CRYPTO_RECEIVING_NETWORKS.map((network) => network.name);
+const CRYPTO_TOP_UP_METHODS = SELLER_CRYPTO_DEPOSIT_NETWORKS.map((network) => network.name);
 const NONCRYPTO_TOP_UP_METHODS = ['UPI', 'Paytm', 'Debit Card', 'Credit Card', 'Visa Card', 'Mastercard', 'PayPal', 'Square', 'QuickBooks', 'Apple Pay', 'Zelle', 'Venmo'];
 const CRYPTO_WITHDRAW_METHODS = ['USDT (TRC20)', 'USDT (ERC20)', 'USDT (BEP20)', 'USDC (Arbitrum One)', 'BTC (Bitcoin)'];
 const DIGITAL_WALLET_WITHDRAW_METHODS = NONCRYPTO_TOP_UP_METHODS;
@@ -106,7 +106,7 @@ export function SellerWalletPanel({
   const [openWithdrawSection, setOpenWithdrawSection] = useState<string | null>('Crypto Withdraw');
   const isCryptoWithdrawal = CRYPTO_WITHDRAW_METHODS.includes(withdrawMethod);
   const isDigitalWalletWithdrawal = DIGITAL_WALLET_WITHDRAW_METHODS.includes(withdrawMethod);
-  const selectedCryptoNetwork = CRYPTO_RECEIVING_NETWORKS.find((network) => network.name === topUpNetwork);
+  const selectedCryptoNetwork = SELLER_CRYPTO_DEPOSIT_NETWORKS.find((network) => network.name === topUpNetwork);
   const activeDepositAddress = selectedCryptoNetwork ? cryptoAddresses[selectedCryptoNetwork.id] || '' : '';
 
   // Live sync with localStorage

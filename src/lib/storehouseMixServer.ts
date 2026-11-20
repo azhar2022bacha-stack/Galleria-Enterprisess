@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { dbQuery } from '@/lib/db';
-import { isCatalogDatabaseAvailable, SELLER_STOREHOUSE_BATCHES } from '@/lib/storehouseCatalogServer';
+import { isCatalogDatabaseAvailable, projectStorehouseProductCategory, SELLER_STOREHOUSE_BATCHES } from '@/lib/storehouseCatalogServer';
+import { CATALOG_CATEGORY_ALIASES, catalogCategorySlug, catalogCategorySourceSlugs } from '@/data/catalogCategoryReplacements';
 import { readStorehouseFallbackProducts, type StorehouseFallbackProduct } from '@/lib/storehouseCatalogFallbackServer';
 import {
   readStorehouseProductFeedCategories,
@@ -100,8 +101,10 @@ function createFallbackCandidates(
   for (const entry of products) {
     const product = entry.product_data;
     if (!product || product.id !== entry.product_id || typeof product.title !== 'string') continue;
-    if (!categories.has(entry.category_slug) || excluded.has(entry.product_id)) continue;
-    if (visibility.deletedSubcategories[entry.category_slug]?.includes(entry.subcategory_slug)) continue;
+    const categorySlug = catalogCategorySlug(entry.category_slug);
+    if (!categories.has(categorySlug) || excluded.has(entry.product_id)) continue;
+    if (visibility.deletedSubcategories[categorySlug]?.includes(entry.subcategory_slug)
+      || visibility.deletedSubcategories[entry.category_slug]?.includes(entry.subcategory_slug)) continue;
     if (bounds.min !== undefined && (bounds.exclusive ? product.price <= bounds.min : product.price < bounds.min)) continue;
     if (bounds.max !== undefined && (bounds.exclusive ? product.price >= bounds.max : product.price > bounds.max)) continue;
     if (status && product.status !== status) continue;
@@ -118,7 +121,7 @@ function createFallbackCandidates(
     const sku = entry.sku_key.trim().toUpperCase() || product.sku?.trim().toUpperCase();
     const title = entry.product_name_key.trim().toLowerCase() || normalizeName(product.title);
     candidates.push({
-      id: entry.product_id, is_fallback: true, category_slug: entry.category_slug,
+      id: entry.product_id, is_fallback: true, category_slug: categorySlug,
       sku: sku ? 'sku:' + sku : 'id:' + entry.product_id,
       title_key: title ? 'title:' + title : 'id:' + entry.product_id,
       sort_name: product.title.toLowerCase(),
@@ -180,8 +183,9 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
   }
 
   // Rank only the catalog identities, then load full product records for the requested page.
-  const params: unknown[] = [SELLER_STOREHOUSE_BATCHES, visibility.categories, filters.excludedIds || [], JSON.stringify(fallback)];
+  const params: unknown[] = [SELLER_STOREHOUSE_BATCHES, visibility.categories.flatMap(catalogCategorySourceSlugs), filters.excludedIds || [], JSON.stringify(fallback)];
   const addParam = (value: unknown) => '$' + params.push(value);
+  const categorySlug = `COALESCE(${addParam(JSON.stringify(CATALOG_CATEGORY_ALIASES))}::jsonb ->> product.category_slug, product.category_slug)`;
   const conditions = [
     "batch.status = 'completed'",
     'product.source_batch = ANY($1::text[])',
@@ -193,6 +197,7 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
     const subcategory = `COALESCE(NULLIF(product.product_data->>'subcategorySlug', ''),
       replace(${normalizedSqlName('product.subcategory_name')}, ' ', '-'))`;
     conditions.push(`NOT (COALESCE(${deleted}::jsonb -> product.category_slug, '[]'::jsonb) ? ${subcategory})`);
+    conditions.push(`NOT (COALESCE(${deleted}::jsonb -> ${categorySlug}, '[]'::jsonb) ? ${subcategory})`);
   }
   const bounds = PRICE_BOUNDS[filters.priceRange];
   if (bounds.min !== undefined) conditions.push('product.price ' + (bounds.exclusive ? '> ' : '>= ') + addParam(bounds.min));
@@ -228,7 +233,7 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
     : 'SELECT * FROM candidates';
   const result = await dbQuery<MixEntry>(`
     WITH candidates AS (
-      SELECT product.product_id AS id, false AS is_fallback, product.category_slug,
+      SELECT product.product_id AS id, false AS is_fallback, ${categorySlug} AS category_slug,
              COALESCE(
                'sku:' || NULLIF(upper(btrim(product.sku_key)), ''),
                'sku:' || NULLIF(upper(btrim(product.product_data->>'sku')), ''),
@@ -324,7 +329,7 @@ async function readPageProducts(entries: MixEntry[]): Promise<DemoProduct[]> {
   }
   return entries.flatMap((entry) => {
     const product = products.get(entry.id);
-    return product ? [product] : [];
+    return product ? [projectStorehouseProductCategory(product)] : [];
   });
 }
 

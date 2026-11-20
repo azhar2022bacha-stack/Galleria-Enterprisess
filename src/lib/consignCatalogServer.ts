@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from 'pg';
 import { getPool } from '@/lib/db';
-import { CONSIGN_CATALOG_PAGE_SIZE } from '@/lib/productFeed';
+import { CONSIGN_CATALOG_PAGE_SIZE, normalizeProductFeedKey } from '@/lib/productFeed';
+import { CATALOG_CATEGORY_ALIASES, catalogCategorySlug } from '@/data/catalogCategoryReplacements';
+import { getStoreCategories, readStoreCategoryOverrides } from '@/lib/storeCategoriesServer';
 
 const CATALOG_PRODUCTS = `
   SELECT entry.product_id, entry.category_name, entry.subcategory_name,
@@ -12,26 +14,44 @@ const CATALOG_PRODUCTS = `
   FROM consign_feed_products`;
 
 export async function readConsignCatalog(category: string, search: string, page: number) {
+  const active = getStoreCategories();
+  const { deletedCategories, deletedSubcategories } = readStoreCategoryOverrides();
+  const categoryKey = catalogCategorySlug(normalizeProductFeedKey(category).replaceAll(' ', '-'));
+  const slug = (field: string) => `trim(both '-' from regexp_replace(regexp_replace(lower(normalize(${field}, NFKD)), '[\u0300-\u036f]', '', 'g'), '[^a-z0-9]+', '-', 'g'))`;
   const { rows } = await getPool().query(
-    `WITH matching AS (
-       SELECT product_id AS id, category_name AS category, subcategory_name AS subcategory,
+    `WITH category_keys AS (
+       SELECT catalog.*, ${slug('category_name')} AS source_slug, ${slug('subcategory_name')} AS subcategory_slug
+       FROM (${CATALOG_PRODUCTS}) catalog
+     ), canonical AS (
+       SELECT category_keys.*, COALESCE($5::jsonb ->> source_slug, source_slug) AS category_slug
+       FROM category_keys
+     ), published AS (
+       SELECT canonical.*, COALESCE($6::jsonb ->> category_slug, category_name) AS display_category
+       FROM canonical
+       WHERE NOT (category_slug = ANY($7::text[]))
+         AND NOT (source_slug = ANY($7::text[]))
+         AND NOT (COALESCE($8::jsonb -> category_slug, '[]'::jsonb) ? subcategory_slug)
+         AND NOT (COALESCE($8::jsonb -> source_slug, '[]'::jsonb) ? subcategory_slug)
+     ), matching AS (
+       SELECT product_id AS id, display_category AS category, subcategory_name AS subcategory,
               product_data->>'title' AS name, price::float AS price,
               product_data->>'sku' AS sku, product_data->>'mainImage' AS "imageUrl",
               (product_data->>'stockQuantity')::integer AS stock
-       FROM (${CATALOG_PRODUCTS}) catalog
-       WHERE ($1 = '' OR category_name = $1)
+       FROM published
+       WHERE ($1 = '' OR category_slug = $1)
          AND ($2 = '' OR strpos(lower(product_data->>'title'), lower($2)) > 0 OR strpos(lower(sku_key), lower($2)) > 0)
      ),
      visible AS (SELECT * FROM matching ORDER BY name, id LIMIT $3 OFFSET $4),
      categories AS (
-       SELECT category_name FROM consign_catalog_products
-       UNION
-       SELECT category_name FROM consign_feed_products
+       SELECT DISTINCT display_category AS category_name FROM published
+       UNION SELECT jsonb_array_elements_text($9::jsonb)
      )
      SELECT COALESCE((SELECT jsonb_agg(visible ORDER BY name, id) FROM visible), '[]'::jsonb) AS products,
             COALESCE((SELECT jsonb_agg(category_name ORDER BY category_name) FROM categories), '[]'::jsonb) AS categories,
             (SELECT count(*)::integer FROM matching) AS "totalCount"`,
-    [category, search, CONSIGN_CATALOG_PAGE_SIZE, (page - 1) * CONSIGN_CATALOG_PAGE_SIZE],
+    [categoryKey, search, CONSIGN_CATALOG_PAGE_SIZE, (page - 1) * CONSIGN_CATALOG_PAGE_SIZE,
+      JSON.stringify(CATALOG_CATEGORY_ALIASES), JSON.stringify(Object.fromEntries(active.map(({ slug, name }) => [slug, name]))),
+      deletedCategories, JSON.stringify(deletedSubcategories), JSON.stringify(active.filter(({ isCustom }) => isCustom).map(({ name }) => name))],
   );
   return rows[0];
 }

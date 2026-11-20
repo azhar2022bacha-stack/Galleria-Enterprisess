@@ -11,9 +11,12 @@ import {
   Banknote,
   CreditCard,
   ShieldCheck,
+  Wallet,
 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import type { Order } from '@/types';
+import { STOREFRONT_CRYPTO_NETWORKS } from '@/lib/storefrontCrypto';
+import { CryptoPaymentInstructions } from '@/components/checkout/CryptoPaymentInstructions';
 
 export default function CheckoutPage() {
   const { items, totalItems, subtotal, clearCart, updateCartProductData } = useCart();
@@ -27,8 +30,16 @@ export default function CheckoutPage() {
   const [promotionError, setPromotionError] = useState('');
   const [promotionMessage, setPromotionMessage] = useState('');
   const [checkingPromotion, setCheckingPromotion] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'card'>('cash_on_delivery');
+  const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'card' | 'crypto'>('cash_on_delivery');
   const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
+  const [cryptoPaymentsEnabled, setCryptoPaymentsEnabled] = useState(false);
+  const [cryptoNetworkId, setCryptoNetworkId] = useState('');
+  const methodUnavailable = (paymentMethod === 'card' && !cardPaymentsEnabled)
+    || (paymentMethod === 'crypto' && (!cryptoPaymentsEnabled || !cryptoNetworkId));
+  const selectPaymentMethod = (method: typeof paymentMethod) => {
+    setPaymentMethod(method);
+    setCheckoutError('');
+  };
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -82,13 +93,19 @@ export default function CheckoutPage() {
     let active = true;
     fetch('/api/storefront-payments/config', { cache: 'no-store' })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load payment methods.')))
-      .then((result) => { if (active && result.success) setCardPaymentsEnabled(Boolean(result.methods?.card)); })
-      .catch(() => { if (active) setCardPaymentsEnabled(false); });
+      .then((result) => {
+        if (active && result.success) {
+          setCardPaymentsEnabled(Boolean(result.methods?.card));
+          setCryptoPaymentsEnabled(Boolean(result.methods?.crypto));
+        }
+      })
+      .catch(() => undefined);
     return () => { active = false; };
   }, []);
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (methodUnavailable) return;
     setCheckoutError('');
     if (hasStockIssue) {
       setCheckoutError('One or more cart quantities exceed the available stock. Return to your cart and adjust them before continuing.');
@@ -104,6 +121,7 @@ export default function CheckoutPage() {
           buyerEmail: formData.email,
           promotionCode: appliedPromotion?.code,
           paymentMethod,
+          ...(paymentMethod === 'crypto' ? { cryptoNetworkId } : {}),
           items: items.map((item) => ({ productId: item.product.id, quantity: item.quantity, displayedPrice: item.product.price, selectedColor: item.selectedColor, selectedSize: item.selectedSize })),
           shippingAddress: {
             fullName: `${formData.firstName} ${formData.lastName}`,
@@ -175,6 +193,10 @@ export default function CheckoutPage() {
             Your order <span className="font-mono font-bold text-[#0c1b33]">{completedOrder.orderNumber}</span> has been created. {completedOrder.paymentStatus === 'PAID' ? 'Payment is confirmed.' : completedOrder.paymentMethod === 'Cash on Delivery' ? 'Please pay the delivery agent when your order arrives.' : 'Payment is still pending; this store has not confirmed a payment.'}
           </p>
           <p className="mt-2 text-xs leading-5 text-gray-500">Keep this order number. You can look it up later with the email address used at checkout.</p>
+
+          {completedOrder.cryptoPayment && completedOrder.paymentStatus === 'PENDING' && (
+            <CryptoPaymentInstructions payment={completedOrder.cryptoPayment} orderNumber={completedOrder.orderNumber} />
+          )}
 
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-left my-6 space-y-3 text-xs">
             <div className="flex justify-between border-b border-gray-100 pb-2">
@@ -420,19 +442,30 @@ export default function CheckoutPage() {
                 <h2 className="font-serif text-lg font-bold text-[#0c1b33]">Choose a payment method</h2>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button type="button" onClick={() => setPaymentMethod('cash_on_delivery')} aria-pressed={paymentMethod === 'cash_on_delivery'} className={`rounded-xl border p-4 text-left transition ${paymentMethod === 'cash_on_delivery' ? 'border-[#bd9957] bg-[#fbfaf7] ring-2 ring-[#bd9957]/15' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <button type="button" onClick={() => selectPaymentMethod('cash_on_delivery')} aria-pressed={paymentMethod === 'cash_on_delivery'} className={`rounded-xl border p-4 text-left transition ${paymentMethod === 'cash_on_delivery' ? 'border-[#bd9957] bg-[#fbfaf7] ring-2 ring-[#bd9957]/15' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
                   <span className="flex items-center gap-2 text-sm font-semibold text-[#14263d]"><Banknote className="h-4 w-4 text-[#a77e43]" />Cash on Delivery</span>
                   <span className="mt-1 block text-[11px] leading-5 text-slate-500">Pay the delivery agent when your order arrives. No online charge is taken now.</span>
                 </button>
-                <button type="button" disabled={!cardPaymentsEnabled} onClick={() => setPaymentMethod('card')} aria-pressed={paymentMethod === 'card'} className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-65 ${paymentMethod === 'card' ? 'border-[#bd9957] bg-[#fbfaf7] ring-2 ring-[#bd9957]/15' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                <button type="button" onClick={() => selectPaymentMethod('card')} aria-pressed={paymentMethod === 'card'} className={`rounded-xl border p-4 text-left transition ${paymentMethod === 'card' ? 'border-[#bd9957] bg-[#fbfaf7] ring-2 ring-[#bd9957]/15' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
                   <span className="flex items-center gap-2 text-sm font-semibold text-[#14263d]"><CreditCard className="h-4 w-4 text-[#a77e43]" />Credit or debit card</span>
                   <span className="mt-1 block text-[11px] leading-5 text-slate-500">Visa and Mastercard through secure hosted checkout.</span>
                   {!cardPaymentsEnabled && <span className="mt-2 inline-block rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-800">Gateway setup required</span>}
                 </button>
+                <button type="button" disabled={!cryptoPaymentsEnabled} onClick={() => selectPaymentMethod('crypto')} aria-pressed={paymentMethod === 'crypto'} className={`rounded-xl border p-4 text-left transition disabled:opacity-65 ${paymentMethod === 'crypto' ? 'border-[#bd9957] bg-[#fbfaf7] ring-2 ring-[#bd9957]/15' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                  <span className="flex items-center gap-2 text-sm font-semibold text-[#14263d]"><Wallet className="h-4 w-4 text-[#a77e43]" />Pay with Crypto</span>
+                  <span className="mt-1 block text-[11px] leading-5 text-slate-500">Pay with USDT or USDC. The store confirms your transfer before shipping.</span>
+                </button>
               </div>
 
-              {paymentMethod === 'card' && <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-[11px] leading-5 text-emerald-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><p>Card details are entered on the payment provider’s secure page; they are not stored by this store.</p></div>}
+              {paymentMethod === 'card' && <div className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-700"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><p>{cardPaymentsEnabled ? 'Enter your card details on the payment provider’s secure page.' : 'Card payments will be available when the payment gateway is connected. Choose another method to place your order now.'}</p></div>}
+              {paymentMethod === 'crypto' && <label className="mt-3 block text-xs font-semibold text-[#14263d]">
+                Crypto network
+                <select value={cryptoNetworkId} onChange={(event) => setCryptoNetworkId(event.target.value)} required className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">Select a network</option>
+                  {STOREFRONT_CRYPTO_NETWORKS.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+                </select>
+              </label>}
 
               {checkoutError && (
                 <div role="alert" className="mt-4 p-3 rounded bg-red-50 border border-red-200 text-xs text-red-800">
@@ -449,11 +482,11 @@ export default function CheckoutPage() {
               <div className="mt-8">
                 <button
                   type="submit"
-                  disabled={isSubmitting || hasStockIssue}
+                  disabled={isSubmitting || hasStockIssue || methodUnavailable}
                   className="w-full py-4 bg-[#0c1b33] hover:bg-[#162b4e] disabled:opacity-75 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded flex items-center justify-center gap-2 shadow-lg transition-all"
                 >
                   <ArrowRight className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Processing...' : `${paymentMethod === 'card' ? 'Continue to secure card payment' : 'Place Cash on Delivery order'} • $${Math.max(0, subtotal - (appliedPromotion?.discountAmount || 0)).toFixed(2)}`}</span>
+                  <span>{isSubmitting ? 'Processing...' : `${paymentMethod === 'card' ? 'Continue to secure card payment' : paymentMethod === 'crypto' ? 'Create order and get payment details' : 'Place Cash on Delivery order'} • $${Math.max(0, subtotal - (appliedPromotion?.discountAmount || 0)).toFixed(2)}`}</span>
                 </button>
               </div>
 

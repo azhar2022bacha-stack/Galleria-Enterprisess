@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { createSellerNotificationServer } from '@/lib/sellerNotificationsServer';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
-import { CRYPTO_RECEIVING_NETWORKS } from '@/lib/cryptoReceivingAddresses';
+import { SELLER_CRYPTO_DEPOSIT_NETWORKS } from '@/lib/cryptoReceivingAddresses';
 import { getSellerCryptoReceivingAddresses, readCryptoReceivingAddressConfig } from '@/lib/cryptoReceivingAddressesServer';
 
 export const dynamic = 'force-dynamic';
@@ -127,7 +127,7 @@ export async function POST(req: Request) {
     const sellerEmail = String(body.email || '').trim().toLowerCase();
     const amount = Number(body.amount);
     const submittedNetwork = String(body.network || '').trim();
-    const network = CRYPTO_RECEIVING_NETWORKS.find((item) => item.name === submittedNetwork);
+    const network = SELLER_CRYPTO_DEPOSIT_NETWORKS.find((item) => item.name === submittedNetwork);
     if (!network) throw new Error('Choose a supported crypto deposit network.');
     const expectedAddress = getSellerCryptoReceivingAddresses(readCryptoReceivingAddressConfig(), sellerEmail)[network.id];
     if (!expectedAddress) throw new Error(`Admin has not configured a receiving address for ${network.name} yet.`);

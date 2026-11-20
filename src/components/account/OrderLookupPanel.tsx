@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { ArrowRight, LoaderCircle, Package, Search, ShieldCheck } from 'lucide-react';
 import type { OrderItem, OrderStatus } from '@/types';
+import type { StorefrontCryptoPayment } from '@/lib/storefrontCrypto';
+import { CryptoPaymentInstructions } from '@/components/checkout/CryptoPaymentInstructions';
 
 type BuyerOrder = {
   id: string;
@@ -14,6 +16,7 @@ type BuyerOrder = {
   totalAmount: number;
   paymentMethod: string;
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED';
+  cryptoPayment?: StorefrontCryptoPayment;
   orderStatus: OrderStatus;
   trackingCarrier?: string;
   trackingNumber?: string;
@@ -88,6 +91,9 @@ export function OrderLookupPanel() {
                 <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${order.paymentStatus === 'PAID' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : order.paymentStatus === 'FAILED' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>{order.paymentStatus === 'PAID' ? 'Paid' : order.paymentStatus === 'FAILED' ? 'Payment failed' : order.paymentMethod === 'Cash on Delivery' ? 'Cash due on delivery' : 'Payment pending'}</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[10px] text-[#758092]"><span>Payment: <strong className="text-[#33445b]">{order.paymentMethod}</strong></span><span>Order status: <strong className="capitalize text-[#33445b]">{order.orderStatus.toLowerCase()}</strong></span></div>
+              {order.cryptoPayment && order.paymentStatus === 'PENDING' && order.orderStatus === 'PENDING' && (
+                <CryptoPaymentInstructions payment={order.cryptoPayment} orderNumber={order.orderNumber} />
+              )}
               <div className="mt-4 space-y-3">
                 {order.items.map((item, index) => <div key={`${item.productId}-${index}`} className="flex items-start justify-between gap-4 text-xs"><div className="min-w-0"><p className="font-semibold text-[#26374d]">{item.title}</p><p className="mt-0.5 text-[10px] text-[#758092]">Qty {item.quantity}{item.selectedColor ? ` · ${item.selectedColor}` : ''}{item.selectedSize ? ` · ${item.selectedSize}` : ''}</p></div><span className="shrink-0 font-semibold text-[#26374d]">${(item.price * item.quantity).toFixed(2)}</span></div>)}
               </div>

@@ -6,6 +6,13 @@ export const CRYPTO_RECEIVING_NETWORKS = [
   { id: 'usdc_arbitrum', name: 'USDC (Arbitrum One)', chain: 'Arbitrum One', format: 'evm' },
 ] as const;
 
+export const DEFAULT_USDT_BEP20_RECEIVING_ADDRESS = '0x5a3092ddac1399704ece4e01eb4253d48bb052a5';
+
+type SellerCryptoDepositNetwork = Exclude<(typeof CRYPTO_RECEIVING_NETWORKS)[number], { id: 'usdt_erc20' }>;
+export const SELLER_CRYPTO_DEPOSIT_NETWORKS = CRYPTO_RECEIVING_NETWORKS.filter(
+  (network): network is SellerCryptoDepositNetwork => network.id !== 'usdt_erc20',
+);
+
 export type CryptoReceivingNetworkId = (typeof CRYPTO_RECEIVING_NETWORKS)[number]['id'];
 
 export type CryptoReceivingAddressMap = Partial<Record<CryptoReceivingNetworkId, string>>;

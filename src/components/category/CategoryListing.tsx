@@ -6,10 +6,12 @@ import { ProductCardImage } from '@/components/product/ProductCardImage';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import { catalogCategorySlug } from '@/data/catalogCategoryReplacements';
 
 const PAGE_SIZE = 24;
 
-export default function CategoryListing({ categorySlug, subcategorySlug }: { categorySlug: string; subcategorySlug?: string }) {
+export default function CategoryListing({ categorySlug: requestedCategory, subcategorySlug }: { categorySlug: string; subcategorySlug?: string }) {
+  const categorySlug = catalogCategorySlug(requestedCategory);
   const { categories, products: catalogProducts, isLoading, error } = useStorefrontCatalog();
   const category = categories.find((item) => item.slug === categorySlug);
   const subcategory = category?.subcategories.find((item) => item.slug === subcategorySlug);

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CATEGORIES } from '@/data/categories';
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
+import { addCatalogCategoryDefaults, catalogCategorySlug, replaceCatalogCategories } from '@/data/catalogCategoryReplacements';
 import {
   DemoProduct,
   PriceRangeFilter,
@@ -185,21 +186,18 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   // Direct Product Selection state (PRD Option 2)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
 
-  const [feedCategories, setFeedCategories] = useState<BrowseCategory[]>(() => STOREHOUSE_IMPORT_CATEGORIES.map((category) => ({
-    id: category.id,
-    name: category.name,
-    slug: category.slug,
-    subcategories: category.subcategories,
-    code: category.code,
-    catalogProductCount: category.catalogProductCount ?? 0,
-  })));
+  const [feedCategories, setFeedCategories] = useState<BrowseCategory[]>(() => replaceCatalogCategories(addCatalogCategoryDefaults(
+    STOREHOUSE_IMPORT_CATEGORIES.map(({ id, name, slug, subcategories }) => ({
+      id, name, slug, subcategories: subcategories.map((name) => ({ name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') })),
+    })),
+  )).map((category) => ({ ...category, subcategories: category.subcategories.map(({ name }) => name) })));
   const [hiddenCategorySlugs, setHiddenCategorySlugs] = useState<string[]>([]);
   const [hiddenSubcategories, setHiddenSubcategories] = useState<Record<string, string[]>>({});
   const catalogCategories = useMemo(() => {
     const hiddenCategories = new Set(hiddenCategorySlugs);
     const hiddenSubs = (categorySlug: string) => new Set(hiddenSubcategories[categorySlug] || []);
     const categoriesBySlug = new Map<string, BrowseCategory>(CATEGORIES
-      .filter((category) => !hiddenCategories.has(category.slug))
+      .filter((category) => !hiddenCategories.has(category.slug) && catalogCategorySlug(category.slug) === category.slug)
       .map((category) => [category.slug, {
         ...category,
         subcategories: category.subcategories.filter((name) => !hiddenSubs(category.slug).has(name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''))),

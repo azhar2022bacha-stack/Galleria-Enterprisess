@@ -1,4 +1,6 @@
-export const STORE_CATEGORIES = [
+import { addCatalogCategoryDefaults, replaceCatalogCategories } from './catalogCategoryReplacements';
+
+export const BASE_STORE_CATEGORIES = [
   {
     "id": "store-cat-1",
     "name": "Mobile Phones & Accessories",
@@ -3303,7 +3305,7 @@ export const STORE_CATEGORIES = [
   }
 ] as const;
 
-export type StoreCategory = (typeof STORE_CATEGORIES)[number];
+export type StoreCategory = (typeof BASE_STORE_CATEGORIES)[number];
 export type StoreSubcategory = StoreCategory['subcategories'][number];
 export type StoreCategoryData = {
   id: string;
@@ -3313,3 +3315,7 @@ export type StoreCategoryData = {
   isCustom?: boolean;
   customSubcategorySlugs?: string[];
 };
+
+export const STORE_CATEGORIES: StoreCategoryData[] = replaceCatalogCategories(addCatalogCategoryDefaults(
+  BASE_STORE_CATEGORIES.map((category) => ({ ...category, subcategories: [...category.subcategories] })),
+));

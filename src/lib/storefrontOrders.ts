@@ -1,4 +1,5 @@
 import type { Address, OrderItem, OrderStatus } from '@/types';
+import type { StorefrontCryptoPayment } from '@/lib/storefrontCrypto';
 
 export type StorefrontOrderStatus = 'payment_pending' | 'cod_pending' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'payment_failed';
 
@@ -24,6 +25,7 @@ export interface StorefrontOrderRecord {
   orderStatus: OrderStatus;
   status: StorefrontOrderStatus;
   stripeSessionId?: string;
+  cryptoPayment?: StorefrontCryptoPayment;
   trackingCarrier?: string;
   trackingNumber?: string;
   trackingUrl?: string;

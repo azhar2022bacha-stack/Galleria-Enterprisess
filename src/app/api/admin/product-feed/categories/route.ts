@@ -3,11 +3,11 @@ import { getRequestAdmin } from '@/lib/adminSession';
 import {
   addStorehouseProductFeedCategory,
   readStorehouseProductFeedCategoryDeletionState,
-  readStorehouseProductFeedCategories,
   StorehouseProductFeedCategoryConflictError,
 } from '@/lib/storehouseProductFeedCategoriesServer';
 import { deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
 import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
+import { readProductFeedCategoryLists, updateProductFeedCategoriesEverywhere } from '@/lib/productFeedSharedCategoriesServer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -16,9 +16,11 @@ export async function GET(request: Request) {
   if (!(await getRequestAdmin(request))) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
+  const lists = readProductFeedCategoryLists();
   return NextResponse.json({
     success: true,
-    categories: readStorehouseProductFeedCategories(),
+    categories: lists.storehouseCategories,
+    ...lists,
     ...readStorehouseProductFeedCategoryDeletionState(),
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
 
-  let body: { kind?: string; name?: string; names?: unknown; categorySlug?: string };
+  let body: { kind?: string; name?: string; names?: unknown; categorySlug?: string; categoryName?: string; scope?: string };
   try { body = await request.json(); }
   catch { return NextResponse.json({ success: false, error: 'Invalid category request.' }, { status: 400 }); }
 
@@ -36,6 +38,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Choose a category or subcategory to add.' }, { status: 400 });
   }
   try {
+    if (body.scope === 'all-catalogs') {
+      return NextResponse.json({ success: true, ...await updateProductFeedCategoriesEverywhere('add', body) }, { status: 201 });
+    }
     const kind = body.kind;
     const categories = await withProductFeedCategoryWrite(() => addStorehouseProductFeedCategory({
       kind,
@@ -57,11 +62,14 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
 
-  let body: { kind?: string; categorySlug?: string; categoryName?: string; subcategorySlug?: string; subcategoryName?: string };
+  let body: { kind?: string; categorySlug?: string; categoryName?: string; subcategorySlug?: string; subcategoryName?: string; scope?: string };
   try { body = await request.json(); }
   catch { return NextResponse.json({ success: false, error: 'Invalid category deletion request.' }, { status: 400 }); }
 
   try {
+    if (body.scope === 'all-catalogs') {
+      return NextResponse.json({ success: true, ...await updateProductFeedCategoriesEverywhere('delete', body) });
+    }
     const result = await deleteProductFeedCategoryEverywhere({
       kind: body.kind,
       categorySlug: body.categorySlug,

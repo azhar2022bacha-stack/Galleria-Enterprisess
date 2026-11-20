@@ -1,4 +1,5 @@
-import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
+import { BASE_STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
+import { addCatalogCategoryDefaults, replaceCatalogCategories } from '@/data/catalogCategoryReplacements';
 import { readProductFeedCategorySnapshot, writeProductFeedCategorySnapshot } from '@/lib/productFeedCategoryStorage';
 
 export interface StoreCategoryOverrides {
@@ -42,19 +43,19 @@ export function writeStoreCategoryOverrides(overrides: StoreCategoryOverrides): 
 export function getStoreCategories(): StoreCategoryData[] {
   const overrides = readStoreCategoryOverrides();
   const deletedCategories = new Set(overrides.deletedCategories);
-  const base = STORE_CATEGORIES.map((category) => ({
+  const base = BASE_STORE_CATEGORIES.map((category) => ({
     id: category.id,
     name: category.name,
     slug: category.slug,
     subcategories: category.subcategories.map((subcategory) => ({ name: subcategory.name, slug: subcategory.slug })),
   }));
-  const merged = [...base, ...overrides.categories.map((category) => ({
+  const merged = addCatalogCategoryDefaults([...base, ...overrides.categories.map((category) => ({
     id: category.id,
     name: category.name,
     slug: category.slug,
     subcategories: category.subcategories.map((subcategory) => ({ name: subcategory.name, slug: subcategory.slug })),
-  }))].filter((category) => !deletedCategories.has(category.slug));
-  return merged.map((category) => {
+  }))]).filter((category) => !deletedCategories.has(category.slug));
+  const categories = merged.map((category) => {
     const additions = overrides.subcategories[category.slug] || [];
     const deletedSubcategories = new Set(overrides.deletedSubcategories[category.slug] || []);
     const seen = new Set(category.subcategories.map((subcategory) => subcategory.slug));
@@ -74,4 +75,5 @@ export function getStoreCategories(): StoreCategoryData[] {
       subcategories: combinedSubcategories,
     };
   });
+  return replaceCatalogCategories(categories, overrides.deletedCategories, overrides.deletedSubcategories);
 }

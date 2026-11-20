@@ -1,5 +1,6 @@
 import type { Product } from '@/types';
 import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
+import { catalogCategorySlug } from '@/data/catalogCategoryReplacements';
 
 export const PRODUCTS_PER_SUBCATEGORY_TARGET = 300;
 
@@ -31,20 +32,21 @@ const SAMPLE_PRODUCT_TAXONOMY: Record<string, { categorySlug: string; subcategor
 };
 
 export function getStoreCategory(slug: string) {
-  const canonicalSlug = STORE_CATEGORIES.some((category) => category.slug === slug)
-    ? slug
-    : LEGACY_CATEGORY_TO_STORE[slug];
+  const replacementSlug = catalogCategorySlug(slug);
+  const canonicalSlug = STORE_CATEGORIES.some((category) => category.slug === replacementSlug)
+    ? replacementSlug
+    : catalogCategorySlug(LEGACY_CATEGORY_TO_STORE[slug] || slug);
   return STORE_CATEGORIES.find((category) => category.slug === canonicalSlug);
 }
 
 export function getStoreTaxonomyForProduct(product: Product) {
   if (product.storeCategorySlug) {
     return {
-      categorySlug: product.storeCategorySlug,
+      categorySlug: catalogCategorySlug(product.storeCategorySlug),
       subcategorySlug: product.subcategorySlug,
     };
   }
-  const explicitCategory = product.storeCategorySlug || product.categorySlug;
+  const explicitCategory = catalogCategorySlug(product.categorySlug);
   const explicitStoreCategory = STORE_CATEGORIES.find((category) => category.slug === explicitCategory);
   if (explicitStoreCategory) {
     return {
@@ -54,10 +56,10 @@ export function getStoreTaxonomyForProduct(product: Product) {
   }
 
   const sampleTaxonomy = SAMPLE_PRODUCT_TAXONOMY[product.id];
-  if (sampleTaxonomy) return sampleTaxonomy;
+  if (sampleTaxonomy) return { ...sampleTaxonomy, categorySlug: catalogCategorySlug(sampleTaxonomy.categorySlug) };
 
   const mappedCategory = LEGACY_CATEGORY_TO_STORE[product.categorySlug];
-  return { categorySlug: mappedCategory, subcategorySlug: undefined };
+  return { categorySlug: mappedCategory ? catalogCategorySlug(mappedCategory) : undefined, subcategorySlug: undefined };
 }
 
 export function getProductsForStoreCategory(

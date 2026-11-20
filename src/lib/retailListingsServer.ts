@@ -5,9 +5,19 @@ import { isDeepStrictEqual } from 'node:util';
 import type { RetailListing } from '@/lib/retailListings';
 import type { PoolClient } from 'pg';
 import { dbQuery, initDb } from '@/lib/db';
+import { getStoreCategories } from '@/lib/storeCategoriesServer';
+import { retailListingToProduct } from '@/lib/retailListingProduct';
+import { filterProductsByActiveStoreTaxonomy } from '@/lib/storeCatalog';
 
 const LISTINGS_FILE = path.join(process.cwd(), 'src', 'data', 'retail_listings.json');
 const DATABASE_CATALOG_ENABLED = Boolean(process.env.DATABASE_URL?.trim());
+
+export function filterPublishedRetailListings(listings: RetailListing[]): RetailListing[] {
+  const published = listings.filter((listing) => listing.status === 'published');
+  const visible = filterProductsByActiveStoreTaxonomy(published.map(retailListingToProduct), getStoreCategories());
+  const ids = new Set(visible.map(({ id }) => id));
+  return published.filter(({ id }) => ids.has(id));
+}
 
 export class RetailListingsChangedError extends Error {
   constructor() {

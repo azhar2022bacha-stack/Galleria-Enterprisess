@@ -17,8 +17,6 @@ import {
   DollarSign,
   ExternalLink,
 } from 'lucide-react';
-import { queryDemoProducts, TOTAL_DEMO_PRODUCTS } from '@/lib/mock-products';
-import { CATEGORIES as STOREHOUSE_CATEGORIES } from '@/data/categories';
 import {
   CountryShopper,
   ShopperCountry,
@@ -157,7 +155,7 @@ const DB_MERCHANTS: ConsignMerchant[] = [
   },
 ];
 
-const CATEGORIES_LIST = ['All categories', ...STOREHOUSE_CATEGORIES.map((category) => category.name)];
+const CONSIGN_CATALOG: readonly ConsignProduct[] = [];
 
 // Zero mock orders - consign orders start clean and persist real dispatched orders
 const INITIAL_CONSIGN_ORDERS: ConsignOrder[] = [];
@@ -363,68 +361,18 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
 
   const productPageSize = 15;
 
-  // 1. Merchant's Already Stock: filtered by category & search (only this seller's products)
-  const filteredAlreadyStockProducts = useMemo<ConsignProduct[]>(() => {
-    if (!isAlreadyStockView) return [];
-    return currentMerchantProducts.filter((prod) => {
+  const activeProductsList = isAlreadyStockView ? currentMerchantProducts : CONSIGN_CATALOG;
+  const filteredProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase();
+    return activeProductsList.filter((prod) => {
       if (productCategory !== 'All categories' && prod.category !== productCategory) {
         return false;
       }
-      if (productSearch.trim()) {
-        const q = productSearch.toLowerCase();
-        if (!prod.name.toLowerCase().includes(q) && !prod.sku.toLowerCase().includes(q)) {
-          return false;
-        }
-      }
-      return true;
+      return !query || prod.name.toLowerCase().includes(query) || prod.sku.toLowerCase().includes(query);
     });
-  }, [isAlreadyStockView, currentMerchantProducts, productCategory, productSearch]);
-
-  // 2. Complete Storehouse inventory query across all categories
-  const storehouseQueryResult = useMemo(() => {
-    if (isAlreadyStockView) return null;
-    return queryDemoProducts({
-      searchQuery: productSearch,
-      category: productCategory,
-      subcategory: 'All',
-      priceRange: 'all',
-      status: 'all',
-      sortBy: 'default',
-      hideAdded: false,
-      page: productPage,
-      pageSize: productPageSize,
-    });
-  }, [isAlreadyStockView, productSearch, productCategory, productPage, productPageSize]);
-
-  // Map Storehouse products for current page
-  const storehouseProducts = useMemo<ConsignProduct[]>(() => {
-    if (isAlreadyStockView || !storehouseQueryResult) return [];
-    return storehouseQueryResult.products.map((p) => ({
-      id: p.id,
-      name: p.title,
-      price: p.price,
-      category: p.category,
-      sku: p.sku,
-      imageUrl: p.mainImage || (p as any).image || (p as any).imageUrl,
-      stock: p.stockQuantity ? `${p.stockQuantity} units` : ((p as any).stockBags ? `${(p as any).stockBags} units` : '100 units'),
-    }));
-  }, [isAlreadyStockView, storehouseQueryResult]);
-
-  // Total items count: full Storehouse catalog, or exact count for Already Stock
-  const totalItemsCount = useMemo<number>(() => {
-    if (isAlreadyStockView) {
-      return filteredAlreadyStockProducts.length;
-    }
-    return storehouseQueryResult?.totalCount ?? TOTAL_DEMO_PRODUCTS;
-  }, [isAlreadyStockView, filteredAlreadyStockProducts.length, storehouseQueryResult?.totalCount]);
-
-  // Total pages:
-  const totalProductPages = useMemo<number>(() => {
-    if (isAlreadyStockView) {
-      return Math.max(1, Math.ceil(filteredAlreadyStockProducts.length / productPageSize));
-    }
-    return storehouseQueryResult?.totalPages ?? Math.ceil(TOTAL_DEMO_PRODUCTS / productPageSize);
-  }, [isAlreadyStockView, filteredAlreadyStockProducts.length, storehouseQueryResult?.totalPages, productPageSize]);
+  }, [activeProductsList, productCategory, productSearch]);
+  const totalItemsCount = filteredProducts.length;
+  const totalProductPages = Math.max(1, Math.ceil(totalItemsCount / productPageSize));
 
   // Generate pagination numbers sliding window (1, 2, 3, 4, 5... step by step)
   const paginationRange = useMemo(() => {
@@ -467,26 +415,13 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     return range;
   }, [productPage, totalProductPages]);
 
-  // Active products to display on current page:
-  const displayProducts = useMemo<ConsignProduct[]>(() => {
-    if (isAlreadyStockView) {
-      const start = (productPage - 1) * productPageSize;
-      return filteredAlreadyStockProducts.slice(start, start + productPageSize);
-    }
-    return storehouseProducts;
-  }, [isAlreadyStockView, filteredAlreadyStockProducts, storehouseProducts, productPage, productPageSize]);
+  const pageStart = (productPage - 1) * productPageSize;
+  const displayProducts = filteredProducts.slice(pageStart, pageStart + productPageSize);
 
-  // Dynamic categories based on active products
   const activeCategories = useMemo(() => {
-    if (isAlreadyStockView) {
-      const cats = new Set<string>();
-      currentMerchantProducts.forEach((p) => {
-        if (p.category) cats.add(p.category);
-      });
-      return ['All categories', ...Array.from(cats)];
-    }
-    return CATEGORIES_LIST;
-  }, [isAlreadyStockView, currentMerchantProducts]);
+    const names = activeProductsList.map((product) => product.category).filter(Boolean);
+    return ['All categories', ...new Set(names)];
+  }, [activeProductsList]);
 
   // Reset pagination on filter change
   useEffect(() => {
@@ -597,14 +532,6 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     setSelectedProductsCache({});
   }, [selectedMerchantId]);
 
-  // Active products source for selection & order pushing:
-  const activeProductsList = useMemo(() => {
-    if (isAlreadyStockView) {
-      return currentMerchantProducts;
-    }
-    return storehouseProducts;
-  }, [isAlreadyStockView, currentMerchantProducts, storehouseProducts]);
-
   const selectedProductsList = useMemo(() => {
     const byId = new Map<string, ConsignProduct>();
     activeProductsList.forEach((p) => byId.set(p.id, p));
@@ -699,7 +626,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
           ? selectedProductsList
           : displayProducts[0]
           ? [displayProducts[0]]
-          : currentMerchantProducts[0]
+          : isAlreadyStockView && currentMerchantProducts[0]
           ? [currentMerchantProducts[0]]
           : []
       ).filter(Boolean);
@@ -1483,17 +1410,17 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                 Search
               </button>
 
-              {/* Quick button to switch back to full Storehouse when in Already Stock view */}
+              {/* Quick button to return to the standard Consign catalog */}
               {isAlreadyStockView && (
                 <button
                   id="consign-storehouse-toggle"
                   onClick={() => {
                     setIsAlreadyStockView(false);
-                    notify?.(`Switched to complete Storehouse catalog (${TOTAL_DEMO_PRODUCTS.toLocaleString()} products).`);
+                    notify?.('Showing the Consign catalog.');
                   }}
                   className="h-8 px-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg shadow-2xs transition-colors whitespace-nowrap"
                 >
-                  All Storehouse ({(TOTAL_DEMO_PRODUCTS / 1000).toFixed(1)}k)
+                  Consign catalog
                 </button>
               )}
 
@@ -1505,7 +1432,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                   if (nextState) {
                     notify?.(`Showing Already Stock for ${selectedMerchant.name} (${currentMerchantProducts.length} products).`);
                   } else {
-                    notify?.(`Showing complete Storehouse catalog (${TOTAL_DEMO_PRODUCTS.toLocaleString()} products).`);
+                    notify?.('Showing the Consign catalog.');
                   }
                 }}
                 className={`h-8 px-3.5 text-xs font-semibold rounded-lg shadow-2xs transition-all whitespace-nowrap flex items-center gap-1.5 ${
@@ -1553,12 +1480,10 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
           {displayProducts.length === 0 ? (
             <div className="py-12 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
               <Package className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-xs font-medium text-gray-600">No products found</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                {isAlreadyStockView
-                  ? `No "Already Stock" products found for ${selectedMerchant.name}.`
-                  : 'Try selecting another category or clearing your search.'}
+              <p className="text-xs font-medium text-gray-600">
+                {!isAlreadyStockView && activeProductsList.length === 0 ? 'The Consign catalog is empty.' : 'No products found'}
               </p>
+              {isAlreadyStockView && <p className="text-[11px] text-gray-400 mt-0.5">No "Already Stock" products found for {selectedMerchant.name}.</p>}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2 min-h-[694px] content-start">

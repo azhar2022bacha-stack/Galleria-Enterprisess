@@ -173,7 +173,7 @@ export const MyProductsCatalog: React.FC<MyProductsCatalogProps> = ({
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>Add More</span>
           </button>
-          {onAddAllToShop && (
+          {totalCount > 0 && onAddAllToShop && (
             <button
               type="button"
               onClick={onAddAllToShop}
@@ -328,7 +328,7 @@ export const MyProductsCatalog: React.FC<MyProductsCatalogProps> = ({
             </div>
             <h3 className="text-sm font-bold text-gray-800">Your Shop is Empty</h3>
             <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 leading-relaxed">
-              You have no products attached to your shop. Select individual products or add all eligible products with one click.
+              Visit the Storehouse to select products for your shop.
             </p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
               <button
@@ -338,16 +338,6 @@ export const MyProductsCatalog: React.FC<MyProductsCatalogProps> = ({
               >
                 <span>Visit Storehouse to Select</span>
               </button>
-              {onAddAllToShop && (
-                <button
-                  type="button"
-                  onClick={onAddAllToShop}
-                  className="px-4 py-2 bg-[#071324] hover:bg-[#11233b] text-white rounded-lg text-xs font-bold shadow-sm transition-all inline-flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5] text-[#cca23b]" />
-                  <span>Add All to My Products</span>
-                </button>
-              )}
             </div>
           </div>
         ) : (

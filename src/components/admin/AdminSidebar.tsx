@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { SupportUnreadBadge } from '@/components/support/SupportUnreadBadge';
 import { DisputeUnreadBadge } from '@/components/disputes/DisputeUnreadBadge';
+import { ADMIN_STORE_NAME, getAdminStoreDisplayName } from './adminStoreName';
 import {
   Search,
   ShoppingCart,
@@ -135,7 +136,7 @@ export function AdminSidebar({
   const [isPromotionsExpanded, setIsPromotionsExpanded] = useState(true);
   const [isGeneralOpen, setIsGeneralOpen] = useState(true);
   const [isDeveloperOpen, setIsDeveloperOpen] = useState(true);
-  const [storeDisplayName, setStoreDisplayName] = useState('Buyxoco');
+  const [storeDisplayName, setStoreDisplayName] = useState(ADMIN_STORE_NAME);
 
   useEffect(() => {
     let mounted = true;
@@ -145,7 +146,7 @@ export function AdminSidebar({
         if (!response.ok) return;
         const result = await response.json();
         if (mounted && result.success && typeof result.settings?.name === 'string' && result.settings.name.trim()) {
-          setStoreDisplayName(result.settings.name.trim());
+          setStoreDisplayName(getAdminStoreDisplayName(result.settings.name));
         }
       } catch {
         // Keep the current label if Store settings cannot be reached.
@@ -153,7 +154,7 @@ export function AdminSidebar({
     };
     const handleStoreSettingsChanged = (event: Event) => {
       const name = (event as CustomEvent<{ name?: string }>).detail?.name;
-      if (typeof name === 'string' && name.trim()) setStoreDisplayName(name.trim());
+      if (typeof name === 'string' && name.trim()) setStoreDisplayName(getAdminStoreDisplayName(name));
     };
     void loadStoreName();
     window.addEventListener('galleria:store-settings-changed', handleStoreSettingsChanged);

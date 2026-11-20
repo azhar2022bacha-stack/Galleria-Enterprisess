@@ -79,8 +79,6 @@ export function AdminOtherViews({
   onOpenTodo,
 }: AdminOtherViewsProps) {
   // Local state for Site Settings
-  const [siteName, setSiteName] = useState('Buyxoco Global Commerce');
-  const [siteDomain, setSiteDomain] = useState('https://buyxoco.com');
   const [defaultCurrency, setDefaultCurrency] = useState('USD ($)');
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [receivingTrc20, setReceivingTrc20] = useState('TQ3Z94dE2vLmP4KjX7bN9wYr1sA8c6vB5m');
@@ -623,7 +621,7 @@ export function AdminOtherViews({
         <div className="border border-gray-100 rounded-xl p-4 flex items-center justify-between text-xs">
           <div>
             <p className="font-bold text-gray-900">Primary Super Admin</p>
-            <p className="text-gray-500 font-mono text-[11px]">admin.op@buyxoco.com · Full Access</p>
+            <p className="text-gray-500 font-mono text-[11px]">Galleria Enterprises · Full Access</p>
           </div>
           <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
             Active Now

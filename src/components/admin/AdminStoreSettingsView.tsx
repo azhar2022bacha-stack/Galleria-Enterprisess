@@ -14,6 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { getAdminStoreDisplayName } from './adminStoreName';
 
 type MetadataValue = string | number | boolean | null;
 
@@ -47,7 +48,7 @@ const secondaryButtonClass = 'inline-flex items-center justify-center gap-2 roun
 function apiShape(settings: StoreSettings) {
   return {
     id: settings.id,
-    name: settings.name,
+    name: getAdminStoreDisplayName(settings.name),
     default_currency_code: settings.defaultCurrencyCode,
     default_region: settings.defaultRegion,
     default_sales_channel: settings.defaultSalesChannel,
@@ -135,11 +136,15 @@ export function AdminStoreSettingsView({ notify }: AdminStoreSettingsViewProps) 
     setSaving(true);
     setError('');
     setSuccess('');
+    // Preserve the saved name when the displayed name was left as-is.
+    const payload = settings && patch.name === getAdminStoreDisplayName(settings.name)
+      ? { ...patch, name: settings.name }
+      : patch;
     try {
       const response = await fetch('/api/admin/store-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(payload),
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Unable to save Store settings.');
@@ -161,7 +166,7 @@ export function AdminStoreSettingsView({ notify }: AdminStoreSettingsViewProps) 
   const openStoreEditor = () => {
     if (!settings) return;
     setStoreDraft({
-      name: settings.name,
+      name: getAdminStoreDisplayName(settings.name),
       defaultCurrencyCode: settings.defaultCurrencyCode,
       defaultRegion: settings.defaultRegion,
       defaultSalesChannel: settings.defaultSalesChannel,
@@ -300,7 +305,7 @@ export function AdminStoreSettingsView({ notify }: AdminStoreSettingsViewProps) 
         </div>
         <div className="divide-y divide-gray-100">
           {[
-            ['Name', settings.name],
+            ['Name', getAdminStoreDisplayName(settings.name)],
             ['Default currency', `${settings.defaultCurrencyCode} · ${settings.currencies.find((item) => item.code === settings.defaultCurrencyCode)?.name ?? ''}`],
             ['Default region', settings.defaultRegion || 'Not set'],
             ['Default sales channel', settings.defaultSalesChannel || 'Not set'],

@@ -136,7 +136,7 @@ const INITIAL_VIDEOS: ShowcaseVideoItem[] = [
   },
   {
     id: 'vid-7',
-    title: 'buyxoco daily find',
+    title: 'Galleria Enterprises daily find',
     status: 'published',
     product: 'prod_01KZF...',
     productFull: 'prod_01KZFA88H6NMS7XPW',

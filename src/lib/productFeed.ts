@@ -2,6 +2,7 @@ export const PRODUCT_FEED_DESTINATION_NAMES = {
   'main-store': 'Main Store',
   'seller-storehouse': 'Seller Storehouse',
   'all-three': 'All Three Stores',
+  consign: 'Consigned Products',
 } as const;
 
 export type ProductFeedDestination = keyof typeof PRODUCT_FEED_DESTINATION_NAMES;

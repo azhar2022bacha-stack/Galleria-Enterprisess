@@ -63,7 +63,7 @@ export function isStorehouseFeedCategory(categorySlug: string): boolean {
   return readStorehouseProductFeedCategories().some((category) => category.slug === categorySlug);
 }
 
-export async function findStorehouseImageReferences(images: Iterable<string>): Promise<string[]> {
+export async function findSharedCatalogImageReferences(images: Iterable<string>): Promise<string[]> {
   const candidates = new Set(images);
   if (!candidates.size) return [];
   const localReferences = readStorehouseFallbackProducts()
@@ -72,8 +72,11 @@ export async function findStorehouseImageReferences(images: Iterable<string>): P
   if (!process.env.DATABASE_URL?.trim()) return localReferences;
   try {
     const result = await dbQuery<{ image: string }>(
-      `SELECT DISTINCT product_data->>'mainImage' AS image
-       FROM storehouse_catalog_products WHERE product_data->>'mainImage' = ANY($1::text[])`,
+      `SELECT product_data->>'mainImage' AS image
+       FROM storehouse_catalog_products WHERE product_data->>'mainImage' = ANY($1::text[])
+       UNION
+       SELECT product_data->>'mainImage' AS image
+       FROM consign_feed_products WHERE product_data->>'mainImage' = ANY($1::text[])`,
       [[...candidates]],
     );
     if (result) return [...localReferences, ...result.rows.map((row) => row.image)];

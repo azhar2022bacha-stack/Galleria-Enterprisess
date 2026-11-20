@@ -5,6 +5,7 @@ import type { PoolClient } from 'pg';
 import { NextResponse } from 'next/server';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getPool, initDb, dbQuery } from '@/lib/db';
+import { findConsignDuplicateKeys, lockConsignCatalogForWrite } from '@/lib/consignCatalogServer';
 import {
   readRetailListings, readRetailListingsForUpdate, RetailListingsChangedError,
   writeRetailListingsAtomically, writeRetailListingsInTransaction,
@@ -125,7 +126,8 @@ function retailDuplicateErrors(products: PreparedFeedProduct[], listings: Retail
 async function validateProducts(destination: Destination, inputs: FeedInput[], storehouseTaxonomy?: ProductFeedTaxonomy) {
   const errors: { row: number; message: string }[] = [];
   const prepared: PreparedFeedProduct[] = [];
-  const storehouseCategories = destination === 'main-store' ? [] : readStorehouseProductFeedCategories();
+  const includesStorehouse = destination === 'seller-storehouse' || destination === 'all-three';
+  const storehouseCategories = includesStorehouse ? readStorehouseProductFeedCategories() : [];
   const categories = destination === 'seller-storehouse' ? storehouseCategories : getStoreCategories();
   const seenSkus = new Set<string>();
   const seenTitles = new Set<string>();
@@ -159,7 +161,10 @@ async function validateProducts(destination: Destination, inputs: FeedInput[], s
 
     const category = findProductFeedTaxonomy(categories, categoryValue);
     const subcategory = category && findProductFeedTaxonomy(category.subcategories, subcategoryValue);
-    if (!category || !subcategory) { errors.push({ row: rowNumber, message: `Choose a valid category and subcategory for the ${destination === 'seller-storehouse' ? 'Seller Storehouse' : 'Main Store'}.` }); return; }
+    if (!category || !subcategory) {
+      errors.push({ row: rowNumber, message: `Choose a valid category and subcategory for ${PRODUCT_FEED_DESTINATION_NAMES[destination === 'all-three' ? 'main-store' : destination]}.` });
+      return;
+    }
 
     let storehouse: PreparedFeedProduct['storehouse'];
     if (destination === 'all-three') {
@@ -204,8 +209,10 @@ async function validateProducts(destination: Destination, inputs: FeedInput[], s
   if (!errors.length && prepared.length) {
     const skuKeys = prepared.map((item) => item.sku.toUpperCase());
     const titleKeys = prepared.map((item) => normalizeKey(item.title));
-    if (destination !== 'seller-storehouse') errors.push(...retailDuplicateErrors(prepared, await readRetailListings()));
-    if (destination !== 'main-store') {
+    if (destination === 'main-store' || destination === 'all-three') {
+      errors.push(...retailDuplicateErrors(prepared, await readRetailListings()));
+    }
+    if (includesStorehouse) {
       const fallbackKeys = findStorehouseFallbackProductKeys();
       const existingSkus = new Set(fallbackKeys.skuKeys);
       const existingTitles = new Set(fallbackKeys.titleKeys);
@@ -224,6 +231,9 @@ async function validateProducts(destination: Destination, inputs: FeedInput[], s
         if (existingSkus.has(item.sku.toUpperCase())) errors.push({ row: item.rowNumber, message: `SKU already exists in the Seller Storehouse: ${item.sku}.` });
         else if (existingTitles.has(normalizeKey(item.title))) errors.push({ row: item.rowNumber, message: `Product title already exists in the Seller Storehouse: ${item.title}.` });
       });
+    }
+    if (destination === 'consign' || destination === 'all-three') {
+      errors.push(...await consignDuplicateErrors(prepared));
     }
   }
 
@@ -398,14 +408,92 @@ async function writeStorehouseBatch(client: PoolClient, batch: ReturnType<typeof
   if (inserted.rowCount !== rows.length) throw new Error('Not all products could be saved to the Seller Storehouse.');
 }
 
-class FeedDuplicateError extends Error {}
+class FeedImportConflictError extends Error {}
+
+async function consignDuplicateErrors(products: PreparedFeedProduct[], client?: PoolClient): Promise<ProductError[]> {
+  const keys = await findConsignDuplicateKeys(
+    products.map((product) => product.sku.toUpperCase()),
+    products.map((product) => normalizeKey(product.title)),
+    client,
+  );
+  const skus = new Set(keys.map((key) => key.sku_key));
+  const titles = new Set(keys.map((key) => key.product_name_key));
+  const errors: ProductError[] = [];
+  for (const item of products) {
+    if (skus.has(item.sku.toUpperCase())) {
+      errors.push({ row: item.rowNumber, message: `SKU already exists in Consigned Products: ${item.sku}.` });
+    } else if (titles.has(normalizeKey(item.title))) {
+      errors.push({ row: item.rowNumber, message: `Product title already exists in Consigned Products: ${item.title}.` });
+    }
+  }
+  return errors;
+}
+
+async function checkConsignImport(client: PoolClient, products: PreparedFeedProduct[]) {
+  await lockConsignCatalogForWrite(client);
+  const taxonomy = new Map(getStoreCategories().map((category) => [
+    category.slug, new Set(category.subcategories.map((subcategory) => subcategory.slug)),
+  ]));
+  if (products.some(({ category, subcategory }) => !taxonomy.get(category.slug)?.has(subcategory.slug))) {
+    throw new FeedImportConflictError('A selected Consign category or subcategory changed. Refresh the categories and validate the upload again.');
+  }
+  const [duplicate] = await consignDuplicateErrors(products, client);
+  if (duplicate) throw new FeedImportConflictError(duplicate.message);
+}
+
+async function saveToConsign(products: PreparedFeedProduct[]) {
+  const rows = products.map((product) => ({
+    product_id: `consign-feed-${randomUUID()}`,
+    category_slug: product.category.slug,
+    category_name: product.category.name,
+    subcategory_slug: product.subcategory.slug,
+    subcategory_name: product.subcategory.name,
+    price: product.price,
+    sku_key: product.sku.toUpperCase(),
+    product_name_key: normalizeKey(product.title),
+    product_data: {
+      title: product.title,
+      description: product.description,
+      brand: product.brand,
+      sku: product.sku,
+      stockQuantity: product.stockQuantity,
+      mainImage: product.image,
+    },
+  }));
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    await checkConsignImport(client, products);
+    const inserted = await client.query(
+      `INSERT INTO consign_feed_products (
+         product_id, category_slug, category_name, subcategory_slug, subcategory_name,
+         price, sku_key, product_name_key, product_data
+       )
+       SELECT product_id, category_slug, category_name, subcategory_slug, subcategory_name,
+              price, sku_key, product_name_key, product_data
+       FROM jsonb_to_recordset($1::jsonb) AS incoming(
+         product_id TEXT, category_slug TEXT, category_name TEXT, subcategory_slug TEXT,
+         subcategory_name TEXT, price NUMERIC(12,2), sku_key TEXT, product_name_key TEXT, product_data JSONB
+       )`,
+      [JSON.stringify(rows)],
+    );
+    if (inserted.rowCount !== rows.length) throw new Error('Not all products could be saved to Consign.');
+    await client.query('COMMIT');
+    return { storageMode: 'postgresql' as const };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 async function publishRetailProducts(products: PreparedFeedProduct[], adminEmail: string, fileName: string, allThree: boolean) {
   const now = new Date().toISOString();
   const additions = products.map((product) => makeRetailListing(product, adminEmail, now));
   const checkDuplicates = (listings: RetailListing[]) => {
     const [duplicate] = retailDuplicateErrors(products, listings);
-    if (duplicate) throw new FeedDuplicateError(duplicate.message);
+    if (duplicate) throw new FeedImportConflictError(duplicate.message);
   };
 
   if (!allThree && !process.env.DATABASE_URL?.trim()) {
@@ -418,6 +506,7 @@ async function publishRetailProducts(products: PreparedFeedProduct[], adminEmail
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
+    if (allThree) await checkConsignImport(client, products);
     const listings = await readRetailListingsForUpdate(client);
     checkDuplicates(listings);
     const batch = allThree ? prepareStorehouseBatch(products) : null;
@@ -460,7 +549,7 @@ export async function POST(request: Request) {
 
   const destination = body?.destination;
   if (!isProductFeedDestination(destination)) {
-    return NextResponse.json({ success: false, error: 'Choose Main Store, Seller Storehouse, or All Three Stores.' }, { status: 400 });
+    return NextResponse.json({ success: false, error: 'Choose a valid Product Feed destination.' }, { status: 400 });
   }
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_ROWS) {
     return NextResponse.json({ success: false, error: `Upload between 1 and ${MAX_ROWS.toLocaleString()} products at a time.` }, { status: 400 });
@@ -478,8 +567,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (destination === 'all-three' && (!process.env.DATABASE_URL?.trim() || !(await initDb()))) {
-      return NextResponse.json({ success: false, error: 'All Three Stores requires an active PostgreSQL connection. No products were saved.' }, { status: 503 });
+    if ((destination === 'all-three' || destination === 'consign') && (!process.env.DATABASE_URL?.trim() || !(await initDb()))) {
+      return NextResponse.json({ success: false, error: `${PRODUCT_FEED_DESTINATION_NAMES[destination]} requires an active PostgreSQL connection. No products were saved.` }, { status: 503 });
     }
     const { prepared, errors } = await validateProducts(destination, body.items, storehouseTaxonomy);
     const report = {
@@ -498,20 +587,20 @@ export async function POST(request: Request) {
 
     const imagePaths = await persistUploadedImages(prepared);
     try {
-      if (destination !== 'seller-storehouse') {
-        const saved = await publishRetailProducts(prepared, admin.email, text(body.fileName).slice(0, 160), destination === 'all-three');
-        return NextResponse.json({ success: true, destination, importedCount: prepared.length, ...saved });
-      }
-
-      const saved = await saveToStorehouse(prepared, admin.email, text(body.fileName).slice(0, 160));
+      const fileName = text(body.fileName).slice(0, 160);
+      const saved = destination === 'consign'
+        ? await saveToConsign(prepared)
+        : destination === 'seller-storehouse'
+          ? await saveToStorehouse(prepared, admin.email, fileName)
+          : await publishRetailProducts(prepared, admin.email, fileName, destination === 'all-three');
       return NextResponse.json({ success: true, destination, importedCount: prepared.length, ...saved });
     } catch (error) {
       await Promise.all(imagePaths.map((filePath) => fs.rm(filePath, { force: true })));
       throw error;
     }
   } catch (error) {
-    if (error instanceof FeedDuplicateError || error instanceof RetailListingsChangedError || (error as { code?: string } | null)?.code === '23505') {
-      const message = error instanceof FeedDuplicateError || error instanceof RetailListingsChangedError
+    if (error instanceof FeedImportConflictError || error instanceof RetailListingsChangedError || (error as { code?: string } | null)?.code === '23505') {
+      const message = error instanceof FeedImportConflictError || error instanceof RetailListingsChangedError
         ? error.message
         : `A SKU or product title already exists in the ${PRODUCT_FEED_DESTINATION_NAMES[destination]} upload. Validate the file again.`;
       return NextResponse.json({ success: false, error: message }, { status: 409 });

@@ -202,6 +202,22 @@ export async function initDb(): Promise<boolean> {
         CREATE INDEX IF NOT EXISTS idx_consign_catalog_category
           ON consign_catalog_products(category_name, product_id);
 
+        CREATE TABLE IF NOT EXISTS consign_feed_products (
+          product_id VARCHAR(100) PRIMARY KEY,
+          category_slug VARCHAR(120) NOT NULL,
+          category_name VARCHAR(160) NOT NULL,
+          subcategory_slug VARCHAR(120) NOT NULL,
+          subcategory_name VARCHAR(160) NOT NULL,
+          price NUMERIC(12, 2) NOT NULL,
+          sku_key TEXT NOT NULL UNIQUE,
+          product_name_key TEXT NOT NULL UNIQUE,
+          product_data JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_consign_feed_category
+          ON consign_feed_products(category_name, product_id);
+
         CREATE TABLE IF NOT EXISTS storehouse_catalog_import_batches (
           id VARCHAR(100) PRIMARY KEY,
           input_digest CHAR(64) NOT NULL,

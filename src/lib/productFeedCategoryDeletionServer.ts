@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { RetailListing } from '@/lib/retailListings';
-import { findStorehouseImageReferences } from '@/lib/storehouseCatalogServer';
+import { findSharedCatalogImageReferences } from '@/lib/storehouseCatalogServer';
+import { lockConsignCatalogForWrite } from '@/lib/consignCatalogServer';
 import {
   readRetailListings,
   readRetailListingsFallbackFile,
@@ -233,6 +234,7 @@ async function deleteStorehouseRows(
 
   try {
     await client.query('BEGIN');
+    await lockConsignCatalogForWrite(client);
     const result = await client.query<{ product_id: string; import_batch_id: string | null }>(
       kind === 'category'
         ? `DELETE FROM storehouse_catalog_products
@@ -254,6 +256,12 @@ async function deleteStorehouseRows(
          AND ($2 = 'category' OR lower(subcategory_name) = ANY($3::text[]))`,
       [categoryNames, kind, subcategoryNames],
     );
+    const consign = await client.query(
+      `DELETE FROM consign_feed_products
+       WHERE (category_slug = ANY($1::text[]) OR lower(category_name) = ANY($2::text[]))
+         AND ($3 = 'category' OR subcategory_slug = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))`,
+      [categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
+    );
     const productIds = result.rows.map((row) => row.product_id);
     const batchIds = unique(result.rows.map((row) => row.import_batch_id).filter((value): value is string => Boolean(value)));
     for (const batchId of batchIds) {
@@ -272,7 +280,7 @@ async function deleteStorehouseRows(
         [batchId, total, JSON.stringify(categoryCounts)],
       );
     }
-    const deleted = { productIds, deletedProducts: result.rowCount || 0 };
+    const deleted = { productIds, deletedProducts: (result.rowCount || 0) + (consign.rowCount || 0) };
     await persistCatalogs(deleted);
     await client.query('COMMIT');
     return deleted;
@@ -417,7 +425,7 @@ export async function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
     ...nextListings.flatMap(listingImagePaths),
     ...nextHistory.flatMap((batch) => batch.previousListings.flatMap(listingImagePaths)),
     ...retainedSellerImages,
-    ...await findStorehouseImageReferences(deletedImagePaths),
+    ...await findSharedCatalogImageReferences(deletedImagePaths),
   ]);
   let removedImages = 0;
   for (const image of deletedImagePaths) {

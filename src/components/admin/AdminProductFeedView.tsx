@@ -10,6 +10,7 @@ import {
   ImagePlus,
   Link2,
   LoaderCircle,
+  Package,
   PackagePlus,
   Plus,
   RefreshCw,
@@ -28,7 +29,7 @@ import {
   type ProductFeedCategory as CategoryOption, type ProductFeedDestination as Destination, type ProductFeedTaxonomy,
 } from '@/lib/productFeed';
 
-type CategoryDestination = Exclude<Destination, 'all-three'>;
+type CategoryDestination = Extract<Destination, 'main-store' | 'seller-storehouse'>;
 type FeedProductInput = {
   rowNumber?: number;
   title: string;
@@ -120,6 +121,12 @@ function toDataUrl(file: File): Promise<string> {
 
 const CSV_TEMPLATE = 'title,description,price_usd,image_url,sku,category,subcategory,brand,stock_quantity\n';
 const PRODUCT_FEED_DESTINATION_STORAGE_KEY = 'buyxoco_admin_product_feed_destination';
+const DESTINATION_OPTIONS = [
+  { id: 'main-store', Icon: Store, detail: 'Publish on the public storefront' },
+  { id: 'seller-storehouse', Icon: Warehouse, detail: 'Add to the shared seller catalog' },
+  { id: 'all-three', Icon: PackagePlus, detail: 'Main Store, Seller Storehouse, and Consign Products' },
+  { id: 'consign', Icon: Package, detail: 'Admin → Consign → Merchant' },
+] as const;
 
 function customOptionsLast<T>(items: T[], isCustom: (item: T) => boolean): T[] {
   return items
@@ -671,23 +678,18 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
           <h2 className="text-sm font-bold text-slate-900">Choose a destination</h2>
           <p className="mt-1 text-xs text-slate-500">Products are saved to the catalog you select below.</p>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {([
-            { id: 'main-store' as const, icon: Store, subtitle: 'Publish products on the public storefront' },
-            { id: 'seller-storehouse' as const, icon: Warehouse, subtitle: 'Add products to the shared seller catalog' },
-            { id: 'all-three' as const, icon: PackagePlus, subtitle: 'Main Store, Seller Storehouse, and Consign Products' },
-          ]).map((option) => {
-            const Icon = option.icon;
-            const active = destination === option.id;
-            return <button key={option.id} type="button" disabled={working || savingSingle} aria-pressed={active} onClick={() => changeDestination(option.id)} className={`group flex items-start gap-3.5 rounded-2xl border p-4 text-left transition ${active ? 'border-[#173759] bg-[#f5f8fb] ring-2 ring-[#173759]/10' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {DESTINATION_OPTIONS.map(({ id, Icon, detail }) => {
+            const active = destination === id;
+            return <button key={id} type="button" disabled={working || savingSingle} aria-pressed={active} onClick={() => changeDestination(id)} className={`group flex items-start gap-3.5 rounded-2xl border p-4 text-left transition ${active ? 'border-[#173759] bg-[#f5f8fb] ring-2 ring-[#173759]/10' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
               <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? 'bg-[#173759] text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}><Icon className="h-5 w-5" /></span>
-              <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-900">{PRODUCT_FEED_DESTINATION_NAMES[option.id]}{active && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{option.subtitle}</span></span>
+              <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-900">{PRODUCT_FEED_DESTINATION_NAMES[id]}{active && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{detail}</span></span>
             </button>;
           })}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      {destination !== 'consign' && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Tag className="h-5 w-5" /></span>
@@ -745,7 +747,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
             {!categories.length && <p className="px-3 py-5 text-center text-[11px] text-slate-500">No categories are available for this destination.</p>}
           </div>
         </div>
-      </section>
+      </section>}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
@@ -759,6 +761,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
         {mode === 'single' ? (
           <form onSubmit={saveSingleProduct} className="space-y-5 p-5 sm:p-6">
             {usesStorehousePicker && <p className="text-xs text-slate-600">Select the Main Store category and subcategory below. Consign Products uses the same category.</p>}
+            {destination === 'consign' && <p className="text-xs text-slate-600">Choose a category from the Main Store category list for this Consign product.</p>}
+            {destination === 'consign' && categoryLoadError && <p role="alert" className="text-xs text-rose-700">{categoryLoadError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-xs font-semibold text-slate-700">Category <span className="text-rose-500">*</span>
                 <TaxonomyPicker key={destination} items={categories} value={categorySlug} onChange={(value) => { setCategorySlug(value); setSubcategorySlug(''); setStorehouseTaxonomy(null); }} label="categories" placeholder="Select category" />
@@ -814,15 +818,11 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
                 <h3 className="text-xs font-bold text-slate-800">File upload destination</h3>
                 <p className="mt-1 text-[11px] text-slate-500">Choose where this file should be saved. This matches the destination selector above.</p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {([
-                  { id: 'main-store' as const, label: 'Main Store', Icon: Store, detail: 'Publish on the public storefront' },
-                  { id: 'seller-storehouse' as const, label: 'Seller Storehouse', Icon: Warehouse, detail: 'Add to the shared seller catalog' },
-                  { id: 'all-three' as const, label: 'All Three Stores', Icon: PackagePlus, detail: 'Main Store, Seller Storehouse, and Consign Products' },
-                ]).map(({ id, label, Icon, detail }) => (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {DESTINATION_OPTIONS.map(({ id, Icon, detail }) => (
                   <button key={id} type="button" onClick={() => changeDestination(id)} aria-pressed={destination === id} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${destination === id ? 'border-[#173759] bg-white ring-2 ring-[#173759]/10' : 'border-slate-200 bg-white/70 hover:border-slate-300'}`}>
                     <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${destination === id ? 'bg-[#173759] text-white' : 'bg-slate-100 text-slate-600'}`}><Icon className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-bold text-slate-800">{label}</span><span className="mt-0.5 block text-[10px] text-slate-500">{detail}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block text-xs font-bold text-slate-800">{PRODUCT_FEED_DESTINATION_NAMES[id]}</span><span className="mt-0.5 block text-[10px] text-slate-500">{detail}</span></span>
                     {destination === id && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
                   </button>
                 ))}
@@ -831,6 +831,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
               <div className="border-t border-slate-200 pt-4">
                 <h3 className="text-xs font-bold text-slate-800">Categories for this upload</h3>
                 <p className="mt-1 text-[11px] text-slate-500">{destination === 'all-three' ? 'Consign Products uses the Main Store category. Choose the corresponding Seller Storehouse category if the names differ.' : 'Assign all rows to one category or use the category columns in the file.'}</p>
+                {destination === 'consign' && <p className="mt-1 text-[11px] text-slate-500">Consigned Products uses the Main Store category list.</p>}
+                {destination === 'consign' && categoryLoadError && <p role="alert" className="mt-2 text-xs text-rose-700">{categoryLoadError}</p>}
                 <div className="mt-3 inline-flex flex-wrap rounded-lg bg-slate-200/70 p-1">
                   <button type="button" onClick={() => { setCsvCategoryMode('selected'); setPreview(null); setCsvError(''); }} aria-pressed={csvCategoryMode === 'selected'} className={`rounded-md px-3 py-2 text-[10px] font-bold transition ${csvCategoryMode === 'selected' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Choose one category</button>
                   <button type="button" onClick={() => { setCsvCategoryMode('columns'); setPreview(null); setCsvError(''); }} aria-pressed={csvCategoryMode === 'columns'} className={`rounded-md px-3 py-2 text-[10px] font-bold transition ${csvCategoryMode === 'columns' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Use file category columns</button>

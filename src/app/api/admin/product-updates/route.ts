@@ -7,7 +7,7 @@ import { readRetailListings, RetailListingsChangedError, writeRetailListingsAtom
 import type { RetailListing } from '@/lib/retailListings';
 import { readProductUpdateHistory, writeProductUpdateHistory, type ProductUpdateBatch } from '@/lib/productUpdateHistoryServer';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
-import { findStorehouseImageReferences } from '@/lib/storehouseCatalogServer';
+import { findSharedCatalogImageReferences } from '@/lib/storehouseCatalogServer';
 import { ALL_PRODUCTS } from '@/services/mockData';
 import { getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
 
@@ -400,7 +400,7 @@ export async function DELETE(request: Request) {
   const stillReferencedImages = new Set([
     ...nextListings.flatMap(imagePathsForListing),
     ...nextHistory.flatMap((batch) => batch.previousListings.flatMap(imagePathsForListing)),
-    ...await findStorehouseImageReferences(candidateImages),
+    ...await findSharedCatalogImageReferences(candidateImages),
   ]);
   let removedImages = 0;
   for (const image of candidateImages) {

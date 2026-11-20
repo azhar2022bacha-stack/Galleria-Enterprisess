@@ -31,6 +31,8 @@ export interface PasswordValidationResult {
   };
 }
 
+export const SELLER_REGISTRATION_PASSWORD_MIN_LENGTH = 6;
+
 export const EXACT_PRD_SEPARATION_ERROR =
   'Your Transaction Password and Repeat Transaction Password must be different from your Login Password and Confirm Password. Please choose a separate Transaction Password.';
 
@@ -70,13 +72,8 @@ export function validatePasswordComplexity(password: string): PasswordComplexity
 }
 
 /**
- * Full validation of the four registration password fields:
- * - Password satisfies complexity
- * - Confirm Password matches Password
- * - Transaction Password satisfies complexity
- * - Repeat Transaction Password matches Transaction Password
- * - Transaction Password is NOT identical to Login Password
- * - Repeat Transaction Password is NOT identical to Confirm Password
+ * Seller registration requires two different passwords, each with at least six
+ * characters and a matching confirmation.
  */
 export function validateRegistrationPasswords(
   fields: RegistrationPasswordFields
@@ -84,35 +81,29 @@ export function validateRegistrationPasswords(
   const { password, confirmPassword, transactionPin, repeatTransactionPin } = fields;
   const errors: PasswordValidationResult['errors'] = {};
 
-  // 1. Password Complexity
-  const passwordComp = validatePasswordComplexity(password);
-  if (!passwordComp.isValid) {
-    errors.password = passwordComp.errors[0];
+  const minLengthError = `Must be at least ${SELLER_REGISTRATION_PASSWORD_MIN_LENGTH} characters long`;
+
+  if (Array.from(password).length < SELLER_REGISTRATION_PASSWORD_MIN_LENGTH) {
+    errors.password = minLengthError;
   }
 
-  // 2. Confirm Password Match
   if (confirmPassword && password !== confirmPassword) {
     errors.confirmPassword = 'Confirm Password does not match Password';
   } else if (!confirmPassword && password) {
     errors.confirmPassword = 'Please confirm your login password';
   }
 
-  // 3. Transaction Password Complexity
-  const transComp = validatePasswordComplexity(transactionPin);
-  if (!transComp.isValid) {
-    errors.transactionPin = transComp.errors[0];
+  if (Array.from(transactionPin).length < SELLER_REGISTRATION_PASSWORD_MIN_LENGTH) {
+    errors.transactionPin = minLengthError;
   }
 
-  // 4. Repeat Transaction Password Match
   if (repeatTransactionPin && transactionPin !== repeatTransactionPin) {
     errors.repeatTransactionPin = 'Repeat Transaction Password does not match Transaction Password';
   } else if (!repeatTransactionPin && transactionPin) {
     errors.repeatTransactionPin = 'Please repeat your transaction password';
   }
 
-  // 5. Critical Separation Requirement:
-  // Transaction Password must NOT be identical to Login Password
-  // Repeat Transaction Password must NOT be identical to Confirm Password
+  // Check both confirmation fields for password reuse as the seller types.
   const isSeparationViolated =
     (password && transactionPin && password === transactionPin) ||
     (confirmPassword && repeatTransactionPin && confirmPassword === repeatTransactionPin) ||

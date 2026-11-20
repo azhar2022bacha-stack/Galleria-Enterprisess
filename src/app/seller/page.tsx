@@ -26,6 +26,7 @@ import {
 import {
   validateRegistrationPasswords,
   EXACT_PRD_SEPARATION_ERROR,
+  SELLER_REGISTRATION_PASSWORD_MIN_LENGTH,
 } from '@/lib/passwordValidation';
 import {
   validateInviteCode,
@@ -697,7 +698,7 @@ function SellerPortalContent() {
                       setRegPassword(e.target.value);
                       markTouched('password');
                     }}
-                    placeholder="At least 8 characters"
+                    placeholder={`At least ${SELLER_REGISTRATION_PASSWORD_MIN_LENGTH} characters`}
                     className={`w-full px-3.5 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 border rounded-xl focus:outline-none transition-all shadow-sm bg-white ${
                       touchedFields.password && passwordValidation.errors.password
                         ? 'border-red-400 focus:border-red-500 focus:ring-1 focus:ring-red-500'
@@ -767,7 +768,7 @@ function SellerPortalContent() {
                       setTransactionPin(e.target.value);
                       markTouched('transactionPin');
                     }}
-                    placeholder="Open with e.g. 123456"
+                    placeholder={`At least ${SELLER_REGISTRATION_PASSWORD_MIN_LENGTH} characters`}
                     className={`w-full px-3.5 py-2.5 text-xs sm:text-sm font-mono text-gray-900 placeholder-gray-400 border rounded-xl focus:outline-none transition-all shadow-sm bg-white ${
                       (touchedFields.transactionPin && passwordValidation.errors.transactionPin) ||
                       passwordValidation.errors.separation
@@ -829,10 +830,10 @@ function SellerPortalContent() {
                 <div className="col-span-1 sm:col-span-2 -mt-1 text-[11.5px] text-gray-500 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <div className="flex items-center gap-1.5">
                     <Info className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                    <span>For withdrawal, provide a number only, like</span>
+                    <span>Use a different password for transactions.</span>
                   </div>
                   <span className="text-[10.5px] text-gray-400">
-                    Passwords must be 8+ chars (A-Z, a-z, 0-9, special char)
+                    Use at least {SELLER_REGISTRATION_PASSWORD_MIN_LENGTH} characters per password. Any character type is allowed.
                   </span>
                 </div>
 

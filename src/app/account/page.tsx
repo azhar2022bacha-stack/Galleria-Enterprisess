@@ -21,6 +21,7 @@ import {
 import { useWishlist } from '@/context/WishlistContext';
 import { useCart } from '@/context/CartContext';
 import { OrderLookupPanel } from '@/components/account/OrderLookupPanel';
+import { storefrontCompany } from '@/lib/storefrontCompany';
 
 function AccountContent() {
   const searchParams = useSearchParams();
@@ -62,7 +63,7 @@ function AccountContent() {
 
   const handleBuyerRegister = (e: React.FormEvent) => {
     e.preventDefault();
-    setNotification('Buyer account created successfully! Welcome to Galleria.');
+    setNotification('Buyer account created successfully! Welcome to ' + storefrontCompany.name + '.');
     setBuyerSubView('dashboard');
     setTimeout(() => setNotification(null), 4000);
   };
@@ -102,7 +103,7 @@ function AccountContent() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-serif text-xl sm:text-2xl font-bold text-[#0c1b33]">
-                  Galleria User Portal
+                  {storefrontCompany.name} User Portal
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-[#c5a059]/40 text-[#c5a059] text-[10px] font-bold uppercase tracking-wider">
                   {activeTab === 'buyer' ? 'Buyer Panel' : activeTab === 'seller' ? 'Seller Merchant' : 'Admin'}
@@ -370,7 +371,7 @@ function AccountContent() {
                     Create Seller Account
                   </h2>
                   <p className="text-xs text-gray-500 mt-1">
-                    Start selling your luxury collections on the Galleria multi-vendor marketplace.
+                    Start selling your luxury collections on the {storefrontCompany.name} marketplace.
                   </p>
                 </div>
 

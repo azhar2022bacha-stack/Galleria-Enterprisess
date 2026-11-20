@@ -2,11 +2,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { DEFAULT_WEBSITE_INFO } from '@/lib/websiteInfo';
-import { getWebsiteInfo } from '@/lib/websiteInfoServer';
+import { getStorefrontWebsiteInfo } from '@/lib/getStorefrontWebsiteInfo';
 
 export default async function HeroBanner() {
-  let websiteInfo = DEFAULT_WEBSITE_INFO;
-  try { websiteInfo = await getWebsiteInfo(); } catch { /* Use the homepage defaults while settings are unavailable. */ }
+  const websiteInfo = await getStorefrontWebsiteInfo();
 
   const useDefaultTitle = !websiteInfo.heroTitle.trim() || websiteInfo.heroTitle === DEFAULT_WEBSITE_INFO.heroTitle;
   const subtitle = websiteInfo.heroSubtitle === DEFAULT_WEBSITE_INFO.heroSubtitle

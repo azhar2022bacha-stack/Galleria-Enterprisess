@@ -1,15 +1,19 @@
 import Link from 'next/link';
 import { ArrowRight, BadgeCheck, Building2, FileBadge, ShieldCheck } from 'lucide-react';
-import { DEFAULT_WEBSITE_INFO } from '@/lib/websiteInfo';
-import { getWebsiteInfo } from '@/lib/websiteInfoServer';
+import { getStorefrontWebsiteInfo } from '@/lib/getStorefrontWebsiteInfo';
+import { getStorefrontAddressLabel, storefrontCompany } from '@/lib/storefrontCompany';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AboutPage() {
-  let websiteInfo = DEFAULT_WEBSITE_INFO;
-  try { websiteInfo = await getWebsiteInfo(); } catch { /* Keep the page available if settings storage is briefly offline. */ }
+  const websiteInfo = await getStorefrontWebsiteInfo();
   const companyDetails = [
     ['Legal company', websiteInfo.legalCompanyName],
+    ['Country', storefrontCompany.country],
+    ['Business location', storefrontCompany.location],
+    ['Business category', storefrontCompany.category],
+    ['Business activity', storefrontCompany.activity],
+    [getStorefrontAddressLabel(websiteInfo.contactAddress), websiteInfo.contactAddress],
     ['Jurisdiction', websiteInfo.jurisdiction],
     ['Registration number', websiteInfo.companyRegNumber],
     ['Registered address', websiteInfo.registeredAddress],

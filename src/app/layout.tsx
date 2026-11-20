@@ -5,18 +5,12 @@ import { CartProvider } from '@/context/CartContext';
 import { WishlistProvider } from '@/context/WishlistContext';
 import { CompareProvider } from '@/context/CompareContext';
 import type { CSSProperties } from 'react';
-import { cache } from 'react';
-import { DEFAULT_WEBSITE_INFO } from '@/lib/websiteInfo';
-import { getWebsiteInfo } from '@/lib/websiteInfoServer';
+import { getStorefrontWebsiteInfo } from '@/lib/getStorefrontWebsiteInfo';
 
 export const dynamic = 'force-dynamic';
 
-const getWebsiteInfoForRequest = cache(async () => {
-  try { return await getWebsiteInfo(); } catch { return DEFAULT_WEBSITE_INFO; }
-});
-
 export async function generateMetadata(): Promise<Metadata> {
-  const websiteInfo = await getWebsiteInfoForRequest();
+  const websiteInfo = await getStorefrontWebsiteInfo();
   const title = websiteInfo.seoTitle || `${websiteInfo.siteName} — ${websiteInfo.tagline}`;
   const description = websiteInfo.seoDescription || websiteInfo.tagline;
   return {
@@ -33,7 +27,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const websiteInfo = await getWebsiteInfoForRequest();
+  const websiteInfo = await getStorefrontWebsiteInfo();
   const brandVariables = {
     '--website-primary': websiteInfo.primaryColor,
     '--website-accent': websiteInfo.accentColor,

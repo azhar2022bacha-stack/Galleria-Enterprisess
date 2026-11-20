@@ -1,6 +1,9 @@
 import Link from 'next/link';
-import { ArrowUpRight, Clock3, Mail, MapPin, Phone } from 'lucide-react';
+import { Clock3, Mail, MapPin, Phone } from 'lucide-react';
+import { getStorefrontAddressLabel, getWhatsAppHref } from '@/lib/storefrontCompany';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
+import { BrandMark } from './BrandMark';
+import { WhatsAppIcon } from './WhatsAppIcon';
 
 const footerGroups = [
   {
@@ -42,20 +45,17 @@ export default function Footer({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
     ['YouTube', websiteInfo.youtubeUrl],
     ['LinkedIn', websiteInfo.linkedInUrl],
   ].filter((item): item is [string, string] => Boolean(item[1]));
-  const whatsApp = websiteInfo.whatsappNumber.replace(/[^\d]/g, '');
-  const hasContactInfo = websiteInfo.supportEmail || websiteInfo.contactPhone || websiteInfo.contactAddress || websiteInfo.openingHours || whatsApp;
+  const whatsAppHref = getWhatsAppHref(websiteInfo.whatsappNumber);
+  const hasContactInfo = websiteInfo.supportEmail || websiteInfo.contactPhone || websiteInfo.contactAddress || websiteInfo.openingHours || whatsAppHref;
 
   return (
     <footer className="border-t border-[#ad9470] bg-[#14263d] text-white">
       <div className="mx-auto max-w-[1440px] px-4 pb-6 pt-12 sm:px-8 sm:pt-16 lg:px-12">
         <div className="grid grid-cols-2 gap-x-5 gap-y-9 border-b border-white/15 pb-10 sm:grid-cols-3 sm:gap-x-8 lg:grid-cols-[1.45fr_1fr_1fr_1fr] lg:gap-x-12 lg:pb-14">
           <div className="col-span-2 min-w-0 sm:col-span-3 lg:col-span-1">
-            <Link href="/" className="inline-block rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#e0c494]">
-              {websiteInfo.logoUrl ? (
-                <img src={websiteInfo.logoUrl} alt={websiteInfo.siteName} className="h-12 max-w-56 object-contain object-left" />
-              ) : (
-                <span className="block font-serif text-3xl font-medium uppercase tracking-[0.12em] text-white [overflow-wrap:anywhere] sm:text-4xl">{websiteInfo.siteName}</span>
-              )}
+            <Link href="/" className="inline-flex items-center gap-3 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#e0c494]">
+              <BrandMark logoUrl={websiteInfo.logoUrl} className="size-12 sm:size-14" />
+              <span className="font-serif text-xl font-medium leading-tight text-white [overflow-wrap:anywhere] sm:text-2xl">{websiteInfo.siteName}</span>
             </Link>
             {(websiteInfo.aboutText || websiteInfo.tagline) && (
               <p className="mt-3 max-w-[32ch] text-sm leading-6 text-[#d6dce4]">{websiteInfo.aboutText ? websiteInfo.aboutText.slice(0, 220) + (websiteInfo.aboutText.length > 220 ? '…' : '') : websiteInfo.tagline}</p>
@@ -64,8 +64,16 @@ export default function Footer({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
               <address className="mt-5 space-y-2.5 text-sm not-italic text-[#d6dce4]">
                 {websiteInfo.supportEmail && <a href={'mailto:' + websiteInfo.supportEmail} className={'flex items-start gap-2.5 break-all ' + footerLink}><Mail size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.supportEmail}</a>}
                 {websiteInfo.contactPhone && <a href={'tel:' + websiteInfo.contactPhone} className={'flex items-start gap-2.5 ' + footerLink}><Phone size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.contactPhone}</a>}
-                {whatsApp && <a href={'https://wa.me/' + whatsApp} target="_blank" rel="noreferrer" className={'inline-flex items-center gap-2 ' + footerLink}>WhatsApp support <ArrowUpRight size={14} aria-hidden="true" /></a>}
-                {websiteInfo.contactAddress && <p className="flex items-start gap-2.5"><MapPin size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.contactAddress}</p>}
+                {whatsAppHref && <a href={whatsAppHref} target="_blank" rel="noreferrer" className={'flex items-start gap-2.5 ' + footerLink}><WhatsAppIcon className="mt-0.5 size-4 shrink-0 text-[#e0c494]" /><span>WhatsApp {websiteInfo.whatsappNumber}</span></a>}
+                {websiteInfo.contactAddress && (
+                  <div className="flex items-start gap-2.5 pt-1">
+                    <MapPin size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />
+                    <div>
+                      <p className="font-semibold text-white">{getStorefrontAddressLabel(websiteInfo.contactAddress)}</p>
+                      <p className="mt-1 whitespace-pre-line leading-6">{websiteInfo.contactAddress}</p>
+                    </div>
+                  </div>
+                )}
                 {websiteInfo.openingHours && <p className="flex items-start gap-2.5"><Clock3 size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.openingHours}</p>}
               </address>
             )}

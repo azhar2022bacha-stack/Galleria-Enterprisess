@@ -1,13 +1,11 @@
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import { DEFAULT_WEBSITE_INFO } from '@/lib/websiteInfo';
-import { getWebsiteInfo } from '@/lib/websiteInfoServer';
+import { getStorefrontWebsiteInfo } from '@/lib/getStorefrontWebsiteInfo';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PrivacyPage() {
-  let websiteInfo = DEFAULT_WEBSITE_INFO;
-  try { websiteInfo = await getWebsiteInfo(); } catch { /* Keep the privacy page available if settings storage is briefly offline. */ }
+  const websiteInfo = await getStorefrontWebsiteInfo();
   return <main className="min-h-screen bg-[#f8f6f1] px-4 py-12 sm:px-6 sm:py-16">
     <article className="mx-auto max-w-4xl overflow-hidden rounded-3xl border border-[#e9e4da] bg-white shadow-sm">
       <header className="bg-[#14263d] px-6 py-9 text-white sm:px-10 sm:py-12"><Link href="/" className="inline-flex items-center gap-2 text-[10px] font-semibold text-white/70 transition hover:text-white"><ArrowLeft className="h-3.5 w-3.5" />Back to {websiteInfo.siteName}</Link><div className="mt-6 flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-[#e6cc98]"><ShieldCheck className="h-5 w-5" /></span><div><p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#e6cc98]">Visitor information</p><h1 className="mt-1 font-serif text-3xl sm:text-4xl">Privacy Policy</h1></div></div><p className="mt-4 text-xs text-white/60">{websiteInfo.siteName}</p></header>

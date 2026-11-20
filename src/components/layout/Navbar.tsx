@@ -9,6 +9,7 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { STOREHOUSE_MAIN_CATEGORIES, TOTAL_MAIN_STOREHOUSE_PRODUCTS } from '@/data/storehouseMainCategories';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
+import { BrandMark } from './BrandMark';
 
 const shopLinks = [
   { href: '/shop', label: 'All products' },
@@ -30,7 +31,7 @@ const mainLinks = [
   { href: '/contact', label: 'Contact' },
 ];
 
-const iconButton = 'relative inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-full text-[#14263d] transition hover:bg-[#eee8dd] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] sm:w-11';
+const iconButton = 'relative inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-[#14263d] transition hover:bg-[#eee8dd] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] min-[380px]:w-9 sm:w-11';
 const navLink = 'inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-[#414a53] transition hover:text-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a77e43]';
 
 export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
@@ -111,7 +112,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
     <>
       <header className="sticky top-0 z-50 border-b border-[#e6ded0] bg-[#fffdf9]">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-8 lg:px-12">
-          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 pb-3 pt-2 sm:gap-x-4 lg:grid-cols-[1fr_auto_1fr] lg:py-3">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 pb-3 pt-2 sm:gap-x-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,300px)_minmax(0,1fr)] lg:py-3">
             <button
               type="button"
               onClick={() => setMobileMenuOpen((open) => !open)}
@@ -123,7 +124,12 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
               {mobileMenuOpen ? <X size={21} strokeWidth={1.65} /> : <Menu size={21} strokeWidth={1.65} />}
             </button>
 
-            <div className="order-last col-span-3 mt-2 flex min-w-0 gap-2 lg:order-first lg:col-span-1 lg:mt-0 lg:max-w-[300px]">
+            <Link href="/" aria-label={websiteInfo.siteName + ' home'} className="flex min-w-0 items-center gap-1.5 justify-self-start rounded-sm py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] sm:gap-3">
+              <BrandMark logoUrl={websiteInfo.logoUrl} className="size-8 sm:size-11 lg:size-12" />
+              <span className="font-serif text-xs font-semibold leading-[1.08] text-[#14263d] [overflow-wrap:anywhere] min-[365px]:text-sm sm:text-xl lg:text-[clamp(1.2rem,1.8vw,1.75rem)]">{websiteInfo.siteName}</span>
+            </Link>
+
+            <div className="order-last col-span-3 mt-2 flex min-w-0 gap-2 lg:order-none lg:col-span-1 lg:mt-0">
               {!isSellerStorefront && (
                 <button type="button" onClick={openCategories} aria-haspopup="dialog" aria-expanded={categoryMenuOpen} aria-controls="store-category-drawer" className={departmentsButton + ' lg:hidden'}>
                   <Grid2X2 size={15} strokeWidth={1.75} /> Departments
@@ -143,14 +149,6 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
                 />
               </form>
             </div>
-
-            <Link href="/" aria-label={websiteInfo.siteName + ' home'} className="min-w-0 justify-self-center rounded-sm py-1.5 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">
-              {websiteInfo.logoUrl ? (
-                <img src={websiteInfo.logoUrl} alt={websiteInfo.siteName} className="h-8 max-w-full object-contain sm:h-11 sm:max-w-40 lg:h-12 lg:max-w-56" />
-              ) : (
-                <span className="block truncate font-serif text-lg font-semibold uppercase leading-tight tracking-[0.12em] text-[#14263d] min-[380px]:text-xl sm:text-3xl lg:text-[2.15rem]">{websiteInfo.siteName}</span>
-              )}
-            </Link>
 
             <div className="flex items-center gap-0.5 justify-self-end sm:gap-1.5">
               {accountLinks.map(({ href, label, icon: Icon, count }) => (

@@ -7,6 +7,8 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import Toast from '@/components/common/Toast';
 import { CompareTray } from '@/components/compare/CompareTray';
+import { WhatsAppShortcut } from '@/components/layout/WhatsAppShortcut';
+import { withStorefrontCompanyInfo } from '@/lib/storefrontCompany';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
 
 export default function AppShell({ children, initialWebsiteInfo }: { children: React.ReactNode; initialWebsiteInfo: WebsiteInfo }) {
@@ -26,7 +28,7 @@ export default function AppShell({ children, initialWebsiteInfo }: { children: R
         const response = await fetch('/api/website-info', { cache: 'no-store' });
         const result = await response.json();
         if (active && response.ok && result.success) {
-          setWebsiteInfo({ ...initialWebsiteInfo, ...result.settings });
+          setWebsiteInfo(withStorefrontCompanyInfo({ ...initialWebsiteInfo, ...result.settings }));
         }
       } catch { /* Keep the server-provided settings if a refresh is unavailable. */ }
     };
@@ -55,6 +57,7 @@ export default function AppShell({ children, initialWebsiteInfo }: { children: R
       <Navbar websiteInfo={websiteInfo} />
       <main className="flex-1">{children}</main>
       <Footer websiteInfo={websiteInfo} />
+      <WhatsAppShortcut number={websiteInfo.whatsappNumber} />
       <CompareTray />
       <Toast />
     </>

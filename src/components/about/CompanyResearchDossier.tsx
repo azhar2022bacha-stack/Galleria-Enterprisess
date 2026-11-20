@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { companyResearchDossier, type DossierBlock } from '@/data/companyResearchDossier';
+import { storefrontCompany } from '@/lib/storefrontCompany';
 
 function ResearchBlock({ block }: { block: DossierBlock }) {
   switch (block.type) {
@@ -49,23 +50,16 @@ export default function CompanyResearchDossier() {
     <section id="company-research-dossier" aria-labelledby="research-dossier-title" className="scroll-mt-36 border border-[#e6ded0] bg-[#fffdf9] p-5 sm:p-8">
       <div className="max-w-3xl">
         <h2 id="research-dossier-title" className="font-serif text-3xl tracking-tight text-[#14263d] sm:text-4xl">Company Research Dossier</h2>
-        <p className="mt-2 text-sm font-semibold text-[#414a53]">{dossier.company} · {dossier.location}</p>
-        <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-[#755c37]">Research date</dt>
-            <dd className="mt-1 text-sm text-[#414a53]"><time dateTime="2026-11-16">{dossier.researchDate}</time></dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-[#755c37]">Primary website in the report</dt>
-            <dd className="mt-1 text-sm text-[#414a53]">{dossier.primaryWebsite}</dd>
-          </div>
+        <p className="mt-2 text-sm font-semibold text-[#414a53]">{storefrontCompany.name} · {dossier.location}</p>
+        <dl className="mt-5">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[#755c37]">Research date</dt>
+          <dd className="mt-1 text-sm text-[#414a53]"><time dateTime="2026-11-16">{dossier.researchDate}</time></dd>
         </dl>
         <p className="mt-5 text-sm leading-6 text-[#515963]"><strong className="text-[#14263d]">Scope</strong> {dossier.scope}</p>
         <p className="mt-3 text-sm leading-6 text-[#515963]">
-          The report reproduces contacts and wholesale terms from the website it cites. For orders placed on this storefront, use our <Link href="/contact" className="font-semibold text-[#14263d] underline decoration-[#ad9470] underline-offset-4">Contact page</Link> and <Link href="#shipping" className="font-semibold text-[#14263d] underline decoration-[#ad9470] underline-offset-4">store policies</Link>.
+          The contacts and wholesale terms below come from the supplied research. For orders placed on this storefront, use our <Link href="/contact" className="font-semibold text-[#14263d] underline decoration-[#ad9470] underline-offset-4">Contact page</Link> and <Link href="#shipping" className="font-semibold text-[#14263d] underline decoration-[#ad9470] underline-offset-4">store policies</Link>.
         </p>
       </div>
-      <p className="mt-5 border-l-2 border-[#a77e43] bg-[#f5f0e7] px-4 py-3 text-sm leading-6 text-[#414a53]">{dossier.notice}</p>
 
       <div className="mt-6 divide-y divide-[#e6ded0] border-y border-[#e6ded0]">
         {dossier.sections.map(({ title, blocks }, index) => (

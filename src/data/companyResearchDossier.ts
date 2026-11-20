@@ -5,20 +5,14 @@ export type DossierBlock =
   | { type: 'table'; headers: [string, string]; rows: Array<[string, string]> };
 
 export const companyResearchDossier: {
-  company: string;
   location: string;
   researchDate: string;
-  primaryWebsite: string;
   scope: string;
-  notice: string;
   sections: Array<{ title: string; blocks: DossierBlock[] }>;
 } = {
-  "company": "Galleria Enterprises, Inc.",
   "location": "Fairfield, New Jersey, United States",
   "researchDate": "16 November 2026",
-  "primaryWebsite": "www.galleria-us.com",
   "scope": "Publicly available company website, product and customer-care pages, trademark listings, and third-party import/shipping datasets. This report does not include private or paid-database information.",
-  "notice": "Important: this dossier identifies the business that appears to match the name and Fairfield, NJ address. Similar names exist. Before sending money, signing a contract, or sharing sensitive documents, confirm that the person contacting you is genuinely connected to this exact business.",
   "sections": [
     {
       "title": "Executive summary",
@@ -26,10 +20,6 @@ export const companyResearchDossier: {
         {
           "type": "paragraph",
           "text": "Galleria Enterprises, Inc. presents itself on its official website as a US wholesale supplier of fashion, accessories, gifts and weather-related products. Its public catalogue includes umbrellas, scarves, clothing, vests, quilted jackets, rainwear, rain boots, bags and related accessories. The website describes a wholesale ordering model, a $200 minimum order, per-style minimum quantities, and a New Jersey warehouse. Public third-party trade data also associates a Galleria Enterprises Inc. at Commerce Road, United States, with import shipments, particularly umbrellas, scarves and apparel/footwear-related goods. The data supports that import activity has been recorded under this consignee name, but it does not independently establish current financial health, legal standing, ownership, or trustworthiness."
-        },
-        {
-          "type": "note",
-          "text": "Quick assessment: There is a live company website with detailed wholesale terms and matching contact/address information, plus third-party shipment and trademark records using the same company name and Fairfield, NJ location. However, the current state corporate status, directors/officers, ownership, revenue, creditworthiness and any relationship with a person who may have contacted you were not independently confirmed in this research."
         }
       ]
     },
@@ -60,14 +50,6 @@ export const companyResearchDossier: {
               "646-290-5754 (also formatted 646.290.5754)"
             ],
             [
-              "Email",
-              "sales@galleria-us.com"
-            ],
-            [
-              "Website",
-              "https://www.galleria-us.com/"
-            ],
-            [
               "Office hours stated on About page",
               "Monday–Friday, 9:00 a.m.–7:00 p.m.; Saturday and Sunday closed"
             ]
@@ -75,7 +57,7 @@ export const companyResearchDossier: {
         },
         {
           "type": "paragraph",
-          "text": "The company website labels this address as its “Corporate Headquarters / Warehouse.” The address, phone and email are shown on its About and Customer Care pages."
+          "text": "The website reviewed for the report labels this address as its “Corporate Headquarters / Warehouse.” Its About and Customer Care pages list the address and phone number."
         }
       ]
     },
@@ -138,7 +120,7 @@ export const companyResearchDossier: {
         },
         {
           "type": "note",
-          "text": "Note: A separate website using the same company name/address (shopstoredeals4u.com) gives slightly different wording for per-style minimums and office hours. Treat the galleria-us.com page as the primary source in this dossier and confirm the current terms on a written quotation or invoice before ordering."
+          "text": "A separate website using the same company name and address (shopstoredeals4u.com) gives slightly different wording for per-style minimums and office hours. The wholesale website reviewed in the report is the primary source for the figures above. Confirm the current terms on a written quotation or invoice before ordering."
         }
       ]
     },
@@ -152,10 +134,6 @@ export const companyResearchDossier: {
         {
           "type": "paragraph",
           "text": "The same page says UPS tracking information is emailed when the company has the customer's email address. For a missing order, it directs customers to call 646-416-6683. For returns, it asks customers to call a representative and have their customer account number available. The page does not publish a detailed return window, restocking fee, refund timetable or full international returns procedure."
-        },
-        {
-          "type": "note",
-          "text": "The website banner says most orders ship the same day if placed by 3 p.m. Eastern Time. This is a company-published claim, not an independently measured delivery performance statistic."
         }
       ]
     },
@@ -182,10 +160,6 @@ export const companyResearchDossier: {
         {
           "type": "paragraph",
           "text": "Public trademark listings identify a US trademark for “GALLERIA ENTERPRISES,” serial number 87937830 and registration number 5817357. The listings associate the mark with Galleria Enterprises, Inc. in Fairfield, NJ and describe the goods/services as retail gift shops. One third-party trademark listing reports registration on July 30, 2019; another reports a Section 8/15 acceptance/acknowledgment event on November 14, 2025. Confirm the current official record directly through the USPTO before relying on it for legal purposes."
-        },
-        {
-          "type": "note",
-          "text": "Important distinction: trademark registration is not the same as a current state corporate-status certificate, a business licence, proof of solvency, or a guarantee that a particular person contacting you is an authorized representative."
         }
       ]
     },

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'crypto';
 import { getRequestAdmin } from '@/lib/adminSession';
-import { readRetailListings, writeRetailListings } from '@/lib/retailListingsServer';
+import { readRetailListings, RetailListingsChangedError, writeRetailListingsAtomically } from '@/lib/retailListingsServer';
 import type { RetailListing } from '@/lib/retailListings';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
@@ -107,6 +107,17 @@ export async function GET(request: Request) {
   return NextResponse.json({ success: false, error: 'Unsupported listing scope.' }, { status: 400 });
 }
 
+async function saveListingChange(listings: RetailListing[], previous: RetailListing[]) {
+  try {
+    await writeRetailListingsAtomically(listings, previous);
+  } catch (error) {
+    if (error instanceof RetailListingsChangedError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
+}
+
 export async function POST(request: Request) {
   const sellerEmail = getRequestSellerEmail(request);
   if (!sellerEmail) return NextResponse.json({ success: false, error: 'Seller sign-in is required.' }, { status: 401 });
@@ -144,8 +155,8 @@ export async function POST(request: Request) {
     createdAt: now,
     updatedAt: now,
   };
-  listings.unshift(listing);
-  await writeRetailListings(listings);
+  const conflict = await saveListingChange([listing, ...listings], listings);
+  if (conflict) return conflict;
   return NextResponse.json({ success: true, listing }, { status: 201 });
 }
 
@@ -180,10 +191,12 @@ export async function PUT(request: Request) {
     sku: String(body.sku || current.sku).trim().slice(0, 64),
     image: body.image.trim() || '/images/storefront/catalog-prod-01.png',
   };
+  const previous = [...listings];
   listings[index] = current.status === 'published'
     ? { ...current, pendingChanges: changes, rejectionNote: undefined, updatedAt: new Date().toISOString() }
     : { ...current, ...changes, status: 'pending', pendingChanges: undefined, rejectionNote: undefined, updatedAt: new Date().toISOString() };
-  await writeRetailListings(listings);
+  const conflict = await saveListingChange(listings, previous);
+  if (conflict) return conflict;
   return NextResponse.json({ success: true, listing: listings[index] });
 }
 
@@ -202,13 +215,15 @@ export async function PATCH(request: Request) {
     const index = listings.findIndex((item) => item.id === String(body.id || '') && item.sellerEmail === sellerEmail);
     if (index < 0) return NextResponse.json({ success: false, error: 'Listing not found for this seller.' }, { status: 404 });
     const current = listings[index];
+    const previous = [...listings];
     listings[index] = {
       ...current,
       stockQuantity,
       pendingChanges: current.pendingChanges ? { ...current.pendingChanges, stockQuantity } : undefined,
       updatedAt: new Date().toISOString(),
     };
-    await writeRetailListings(listings);
+    const conflict = await saveListingChange(listings, previous);
+    if (conflict) return conflict;
     return NextResponse.json({ success: true, listing: listings[index] });
   }
 
@@ -235,6 +250,7 @@ export async function PATCH(request: Request) {
     if (!image || image.length > 1000 || !(image.startsWith('/') || /^https:\/\//i.test(image))) return NextResponse.json({ success: false, error: 'Use an HTTPS image URL or a local image path.' }, { status: 400 });
     if (hasDuplicateProduct({ title, sku }, listings, listings[index].id)) return NextResponse.json({ success: false, error: 'Another catalog listing already uses this product name or SKU.' }, { status: 409 });
     const current = listings[index];
+    const previous = [...listings];
     listings[index] = {
       ...current,
       title,
@@ -252,7 +268,8 @@ export async function PATCH(request: Request) {
       rejectionNote: undefined,
       updatedAt: new Date().toISOString(),
     };
-    await writeRetailListings(listings);
+    const conflict = await saveListingChange(listings, previous);
+    if (conflict) return conflict;
     return NextResponse.json({ success: true, listing: listings[index] });
   }
 
@@ -267,6 +284,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: false, error: 'Another catalog listing now uses this product name or SKU. Resolve the duplicate before approving this product.' }, { status: 409 });
   }
   const rejectionNote = decision === 'rejected' ? String(body?.rejectionNote || 'Please review the product details and submit again.').slice(0, 500) : undefined;
+  const previous = [...listings];
   if (current.pendingChanges) {
     listings[index] = decision === 'published'
       ? { ...current, ...current.pendingChanges, status: 'published', pendingChanges: undefined, rejectionNote: undefined, updatedAt: new Date().toISOString() }
@@ -274,6 +292,7 @@ export async function PATCH(request: Request) {
   } else {
     listings[index] = { ...current, status: decision, rejectionNote, updatedAt: new Date().toISOString() };
   }
-  await writeRetailListings(listings);
+  const conflict = await saveListingChange(listings, previous);
+  if (conflict) return conflict;
   return NextResponse.json({ success: true, listing: listings[index] });
 }

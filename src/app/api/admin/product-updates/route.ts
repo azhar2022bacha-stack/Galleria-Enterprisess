@@ -3,10 +3,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getRequestAdmin } from '@/lib/adminSession';
-import { readRetailListings, writeRetailListingsAtomically } from '@/lib/retailListingsServer';
+import { readRetailListings, RetailListingsChangedError, writeRetailListingsAtomically } from '@/lib/retailListingsServer';
 import type { RetailListing } from '@/lib/retailListings';
 import { readProductUpdateHistory, writeProductUpdateHistory, type ProductUpdateBatch } from '@/lib/productUpdateHistoryServer';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
+import { findStorehouseImageReferences } from '@/lib/storehouseCatalogServer';
 import { ALL_PRODUCTS } from '@/services/mockData';
 import { getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
 
@@ -374,13 +375,18 @@ export async function DELETE(request: Request) {
   const removedIds = new Set(removedListings.map((listing) => listing.id));
   const nextListings = listings.filter((listing) => !removedIds.has(listing.id));
   const nextHistory = stripDeletedListingsFromHistory(history, removedIds);
+  let catalogSaved = false;
   try {
-    await writeRetailListingsAtomically(nextListings);
+    await writeRetailListingsAtomically(nextListings, listings);
+    catalogSaved = true;
     await writeProductUpdateHistory(nextHistory);
-  } catch {
+  } catch (error) {
+    if (error instanceof RetailListingsChangedError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     try {
-      await writeRetailListingsAtomically(listings);
-      await writeProductUpdateHistory(history);
+      if (catalogSaved) {
+        await writeRetailListingsAtomically(listings, nextListings);
+        await writeProductUpdateHistory(history);
+      }
     } catch { /* Return the original failure if recovery also fails. */ }
     return NextResponse.json({ success: false, error: 'Product deletion could not be saved. The previous catalog was restored.' }, { status: 500 });
   }
@@ -394,6 +400,7 @@ export async function DELETE(request: Request) {
   const stillReferencedImages = new Set([
     ...nextListings.flatMap(imagePathsForListing),
     ...nextHistory.flatMap((batch) => batch.previousListings.flatMap(imagePathsForListing)),
+    ...await findStorehouseImageReferences(candidateImages),
   ]);
   let removedImages = 0;
   for (const image of candidateImages) {
@@ -431,16 +438,20 @@ export async function POST(request: Request) {
     const createdIds = new Set(batch.createdProductIds);
     const restored = listings.filter((listing) => !createdIds.has(listing.id)).map((listing) => previousById.get(listing.id) || listing);
     const oldListings = listings;
-    const oldHistory = history;
+    const oldHistory = [...history];
     const rolledBackAt = new Date().toISOString();
     history[batchIndex] = { ...batch, status: 'rolled_back', rolledBackAt };
+    let catalogSaved = false;
     try {
-      await writeRetailListingsAtomically(restored);
+      await writeRetailListingsAtomically(restored, oldListings);
+      catalogSaved = true;
       await writeProductUpdateHistory(history);
-    } catch {
-      await writeRetailListingsAtomically(oldListings);
-      await writeProductUpdateHistory(oldHistory);
-      return NextResponse.json({ success: false, error: 'Rollback could not be saved. The original catalog was restored.' }, { status: 500 });
+    } catch (error) {
+      if (error instanceof RetailListingsChangedError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
+      if (catalogSaved) {
+        await writeRetailListingsAtomically(oldListings, restored).then(() => writeProductUpdateHistory(oldHistory)).catch(() => {});
+      }
+      return NextResponse.json({ success: false, error: 'The catalog rollback could not be saved.' }, { status: 500 });
     }
     const historySummary = history.slice(-50).reverse().map(({ previousListings: _previousListings, productIds: _productIds, createdProductIds: _createdProductIds, ...summary }) => summary);
     return NextResponse.json({ success: true, rolledBack: true, removedCount: createdIds.size, restoredCount: previousById.size, history: historySummary });
@@ -521,12 +532,15 @@ export async function POST(request: Request) {
     categoryCounts,
   };
   const nextHistory = [...history, batch];
+  let catalogSaved = false;
   try {
-    await writeRetailListingsAtomically(nextListings);
+    await writeRetailListingsAtomically(nextListings, oldListings);
+    catalogSaved = true;
     await writeProductUpdateHistory(nextHistory);
-  } catch {
-    await writeRetailListingsAtomically(oldListings);
-    return NextResponse.json({ success: false, error: 'Import could not be fully saved. The previous catalog was restored.' }, { status: 500 });
+  } catch (error) {
+    if (error instanceof RetailListingsChangedError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
+    if (catalogSaved) await writeRetailListingsAtomically(oldListings, nextListings).catch(() => {});
+    return NextResponse.json({ success: false, error: 'The catalog import could not be fully saved.' }, { status: 500 });
   }
 
   const savedProducts = productIds.map((id) => nextListings.find((listing) => listing.id === id)).filter((listing): listing is RetailListing => Boolean(listing));

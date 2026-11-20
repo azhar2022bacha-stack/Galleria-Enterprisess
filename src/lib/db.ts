@@ -192,6 +192,16 @@ export async function initDb(): Promise<boolean> {
           ON storehouse_catalog_products(product_name_key)
           WHERE source_batch = 'ADMIN-PRODUCT-FEED-V1' AND product_name_key IS NOT NULL;
 
+        CREATE TABLE IF NOT EXISTS consign_catalog_products (
+          product_id VARCHAR(100) PRIMARY KEY REFERENCES storehouse_catalog_products(product_id) ON DELETE CASCADE,
+          category_name VARCHAR(160) NOT NULL,
+          subcategory_name VARCHAR(160) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_consign_catalog_category
+          ON consign_catalog_products(category_name, product_id);
+
         CREATE TABLE IF NOT EXISTS storehouse_catalog_import_batches (
           id VARCHAR(100) PRIMARY KEY,
           input_digest CHAR(64) NOT NULL,

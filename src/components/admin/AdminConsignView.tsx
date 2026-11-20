@@ -39,6 +39,7 @@ import {
 import { AdminSellerTrackerView } from './AdminSellerTrackerView';
 import { AdminConsignProductQueriesPanel } from './AdminConsignProductQueriesPanel';
 import { recordAdminActivity } from '@/lib/adminAuditClient';
+import { CONSIGN_CATALOG_PAGE_SIZE } from '@/lib/productFeed';
 import { DisputeProductUnreadBadge, getDisputeProductUnreadCount, useDisputeProductUnread } from '@/components/disputes/DisputeUnreadBadge';
 
 export interface ConsignMerchant {
@@ -56,6 +57,7 @@ export interface ConsignProduct {
   name: string;
   price: number;
   category: string;
+  subcategory?: string;
   imageUrl?: string;
   sku: string;
   stock?: string | number;
@@ -155,7 +157,8 @@ const DB_MERCHANTS: ConsignMerchant[] = [
   },
 ];
 
-const CONSIGN_CATALOG: readonly ConsignProduct[] = [];
+type ConsignCatalogPage = { products: ConsignProduct[]; categories: string[]; totalCount: number };
+const EMPTY_CONSIGN_CATALOG: ConsignCatalogPage = { products: [], categories: [], totalCount: 0 };
 
 // Zero mock orders - consign orders start clean and persist real dispatched orders
 const INITIAL_CONSIGN_ORDERS: ConsignOrder[] = [];
@@ -198,6 +201,9 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [selectedProductsCache, setSelectedProductsCache] = useState<Record<string, ConsignProduct>>({});
   const [productPage, setProductPage] = useState(1);
+  const [consignCatalog, setConsignCatalog] = useState(EMPTY_CONSIGN_CATALOG);
+  const [consignLoading, setConsignLoading] = useState(true);
+  const [consignError, setConsignError] = useState('');
 
   // Screen 3: Shopper selection (5 Country Sections: Pakistan, India, USA, Canada, UK)
   const [activeCountry, setActiveCountry] = useState<ShopperCountry>('Pakistan');
@@ -359,19 +365,49 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     return [];
   }, [selectedMerchant]);
 
-  const productPageSize = 15;
+  const productPageSize = CONSIGN_CATALOG_PAGE_SIZE;
 
-  const activeProductsList = isAlreadyStockView ? currentMerchantProducts : CONSIGN_CATALOG;
-  const filteredProducts = useMemo(() => {
+  useEffect(() => {
+    if (isAlreadyStockView || activeConsignTab !== 'consign') return;
+    const request = new AbortController();
+    const load = async () => {
+      setConsignLoading(true);
+      setConsignError('');
+      const params = new URLSearchParams({ page: String(productPage) });
+      if (productCategory !== 'All categories') params.set('category', productCategory);
+      if (productSearch.trim()) params.set('search', productSearch.trim());
+      try {
+        const response = await fetch(`/api/consign/catalog?${params}`, { cache: 'no-store', signal: request.signal });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'Consign products could not be loaded.');
+        if (request.signal.aborted) return;
+        setConsignCatalog(result);
+        const lastPage = Math.max(1, Math.ceil(result.totalCount / CONSIGN_CATALOG_PAGE_SIZE));
+        if (productPage > lastPage) setProductPage(lastPage);
+      } catch (error) {
+        if (!request.signal.aborted) {
+          setConsignCatalog(EMPTY_CONSIGN_CATALOG);
+          setConsignError(error instanceof Error ? error.message : 'Consign products could not be loaded.');
+        }
+      } finally {
+        if (!request.signal.aborted) setConsignLoading(false);
+      }
+    };
+    const timer = window.setTimeout(() => void load(), productSearch ? 200 : 0);
+    return () => { window.clearTimeout(timer); request.abort(); };
+  }, [activeConsignTab, isAlreadyStockView, productCategory, productSearch, productPage]);
+
+  const activeProductsList = isAlreadyStockView ? currentMerchantProducts : consignCatalog.products;
+  const filteredMerchantProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
-    return activeProductsList.filter((prod) => {
+    return currentMerchantProducts.filter((prod) => {
       if (productCategory !== 'All categories' && prod.category !== productCategory) {
         return false;
       }
       return !query || prod.name.toLowerCase().includes(query) || prod.sku.toLowerCase().includes(query);
     });
-  }, [activeProductsList, productCategory, productSearch]);
-  const totalItemsCount = filteredProducts.length;
+  }, [currentMerchantProducts, productCategory, productSearch]);
+  const totalItemsCount = isAlreadyStockView ? filteredMerchantProducts.length : consignCatalog.totalCount;
   const totalProductPages = Math.max(1, Math.ceil(totalItemsCount / productPageSize));
 
   // Generate pagination numbers sliding window (1, 2, 3, 4, 5... step by step)
@@ -416,12 +452,22 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
   }, [productPage, totalProductPages]);
 
   const pageStart = (productPage - 1) * productPageSize;
-  const displayProducts = filteredProducts.slice(pageStart, pageStart + productPageSize);
+  const displayProducts = isAlreadyStockView
+    ? filteredMerchantProducts.slice(pageStart, pageStart + productPageSize)
+    : consignLoading ? [] : consignCatalog.products;
 
   const activeCategories = useMemo(() => {
-    const names = activeProductsList.map((product) => product.category).filter(Boolean);
+    const names = isAlreadyStockView
+      ? currentMerchantProducts.map((product) => product.category).filter(Boolean)
+      : consignCatalog.categories;
     return ['All categories', ...new Set(names)];
-  }, [activeProductsList]);
+  }, [consignCatalog.categories, currentMerchantProducts, isAlreadyStockView]);
+
+  const changeProductSource = (alreadyStock: boolean) => {
+    setIsAlreadyStockView(alreadyStock);
+    setProductCategory('All categories');
+    setProductPage(1);
+  };
 
   // Reset pagination on filter change
   useEffect(() => {
@@ -1343,7 +1389,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
             <button
               onClick={() => {
                 const nextState = !isAlreadyStockView;
-                setIsAlreadyStockView(nextState);
+                changeProductSource(nextState);
                 void recordAdminActivity({
                   actionText: nextState ? `Switched to Already Stock products for ${selectedMerchant.name}` : 'Switched back to the standard Consign catalog',
                   details: nextState ? `${currentMerchantProducts.length} seller-stocked products are available for this order.` : `Seller: ${selectedMerchant.name}`,
@@ -1388,7 +1434,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
               <h2 className="font-semibold text-sm text-gray-900">
                 {isAlreadyStockView
                   ? `Already Stock · ${totalItemsCount.toLocaleString()} products attached to ${selectedMerchant.name}`
-                  : `Products & quantities · ${totalItemsCount.toLocaleString()} available`}
+                  : consignLoading ? 'Products & quantities' : `Products & quantities · ${totalItemsCount.toLocaleString()} available`}
               </h2>
             </div>
 
@@ -1415,7 +1461,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                 <button
                   id="consign-storehouse-toggle"
                   onClick={() => {
-                    setIsAlreadyStockView(false);
+                    changeProductSource(false);
                     notify?.('Showing the Consign catalog.');
                   }}
                   className="h-8 px-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg shadow-2xs transition-colors whitespace-nowrap"
@@ -1428,7 +1474,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                 id="already-stock-btn"
                 onClick={() => {
                   const nextState = !isAlreadyStockView;
-                  setIsAlreadyStockView(nextState);
+                  changeProductSource(nextState);
                   if (nextState) {
                     notify?.(`Showing Already Stock for ${selectedMerchant.name} (${currentMerchantProducts.length} products).`);
                   } else {
@@ -1480,8 +1526,11 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
           {displayProducts.length === 0 ? (
             <div className="py-12 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
               <Package className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-xs font-medium text-gray-600">
-                {!isAlreadyStockView && activeProductsList.length === 0 ? 'The Consign catalog is empty.' : 'No products found'}
+              <p role="status" className="text-xs font-medium text-gray-600">
+                {isAlreadyStockView
+                  ? 'No products found'
+                  : consignLoading ? 'Loading Consign products…'
+                    : consignError || (productCategory === 'All categories' && !productSearch.trim() ? 'The Consign catalog is empty.' : 'No products match these filters.')}
               </p>
               {isAlreadyStockView && <p className="text-[11px] text-gray-400 mt-0.5">No "Already Stock" products found for {selectedMerchant.name}.</p>}
             </div>

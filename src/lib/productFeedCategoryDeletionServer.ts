@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { RetailListing } from '@/lib/retailListings';
+import { findStorehouseImageReferences } from '@/lib/storehouseCatalogServer';
 import {
   readRetailListings,
   readRetailListingsFallbackFile,
@@ -247,6 +248,12 @@ async function deleteStorehouseRows(
         ? [batches, categorySlugs, categoryNames]
         : [batches, categorySlugs, categoryNames, subcategorySlugs, subcategoryNames],
     );
+    await client.query(
+      `DELETE FROM consign_catalog_products
+       WHERE lower(category_name) = ANY($1::text[])
+         AND ($2 = 'category' OR lower(subcategory_name) = ANY($3::text[]))`,
+      [categoryNames, kind, subcategoryNames],
+    );
     const productIds = result.rows.map((row) => row.product_id);
     const batchIds = unique(result.rows.map((row) => row.import_batch_id).filter((value): value is string => Boolean(value)));
     for (const batchId of batchIds) {
@@ -369,12 +376,12 @@ export async function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
     retainedSellerImages = new Set(Object.values(nextSellerProducts).flatMap((products) => (
       Array.isArray(products) ? products.map((product) => product?.image).filter((image): image is string => typeof image === 'string') : []
     )));
+    if (!useFileFallback) await writeRetailListingsAtomically(nextListings, oldListings);
     try {
       if (useFileFallback) {
         writeRetailListingsFallbackFile(nextListings);
         writeProductUpdateHistoryFallbackFile(nextHistory);
       } else {
-        await writeRetailListingsAtomically(nextListings);
         await writeProductUpdateHistory(nextHistory);
       }
       writeStoreCategoryOverrides(nextMainOverrides);
@@ -388,7 +395,7 @@ export async function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
           writeRetailListingsFallbackFile(oldListings);
           writeProductUpdateHistoryFallbackFile(oldHistory);
         } else {
-          await writeRetailListingsAtomically(oldListings);
+          await writeRetailListingsAtomically(oldListings, nextListings);
           await writeProductUpdateHistory(oldHistory);
         }
         writeStoreCategoryOverrides(oldMainOverrides);
@@ -410,6 +417,7 @@ export async function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
     ...nextListings.flatMap(listingImagePaths),
     ...nextHistory.flatMap((batch) => batch.previousListings.flatMap(listingImagePaths)),
     ...retainedSellerImages,
+    ...await findStorehouseImageReferences(deletedImagePaths),
   ]);
   let removedImages = 0;
   for (const image of deletedImagePaths) {

@@ -62,3 +62,23 @@ export async function readStorehouseCategory(categorySlug: string): Promise<Demo
 export function isStorehouseFeedCategory(categorySlug: string): boolean {
   return readStorehouseProductFeedCategories().some((category) => category.slug === categorySlug);
 }
+
+export async function findStorehouseImageReferences(images: Iterable<string>): Promise<string[]> {
+  const candidates = new Set(images);
+  if (!candidates.size) return [];
+  const localReferences = readStorehouseFallbackProducts()
+    .map((row) => row.product_data.mainImage)
+    .filter((image) => candidates.has(image));
+  if (!process.env.DATABASE_URL?.trim()) return localReferences;
+  try {
+    const result = await dbQuery<{ image: string }>(
+      `SELECT DISTINCT product_data->>'mainImage' AS image
+       FROM storehouse_catalog_products WHERE product_data->>'mainImage' = ANY($1::text[])`,
+      [[...candidates]],
+    );
+    if (result) return [...localReferences, ...result.rows.map((row) => row.image)];
+  } catch {
+    // Keep shared images if the catalog's references cannot be checked.
+  }
+  return [...candidates];
+}

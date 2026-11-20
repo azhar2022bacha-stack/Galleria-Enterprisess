@@ -9,6 +9,7 @@ import {
   readStorehouseProductFeedCategoryDeletionState,
 } from '@/lib/storehouseProductFeedCategoriesServer';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
+import { readStorehouseMix } from '@/lib/storehouseMixServer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,6 +41,24 @@ function hasSellerSession(request: Request): boolean {
 export async function POST(request: Request) {
   if (!hasSellerSession(request)) {
     return NextResponse.json({ success: false, error: 'Seller sign-in is required.' }, { status: 401 });
+  }
+
+  if (new URL(request.url).searchParams.get('view') === 'mixed') {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ success: false, error: 'Invalid catalog filters.' }, { status: 400 });
+    }
+    try {
+      return NextResponse.json(
+        { success: true, ...await readStorehouseMix(body) },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Storehouse products are temporarily unavailable. Please try again.' },
+        { status: 503 },
+      );
+    }
   }
 
   try {

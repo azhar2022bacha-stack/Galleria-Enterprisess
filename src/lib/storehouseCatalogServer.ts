@@ -5,9 +5,9 @@ import { readStorehouseFallbackProducts } from '@/lib/storehouseCatalogFallbackS
 
 export const VERIFIED_STOREHOUSE_BATCH = 'STOREHOUSE-CATALOG-VERIFIED-V1';
 export const ADMIN_PRODUCT_FEED_BATCH = 'ADMIN-PRODUCT-FEED-V1';
-const SELLER_STOREHOUSE_BATCHES = [VERIFIED_STOREHOUSE_BATCH, ADMIN_PRODUCT_FEED_BATCH];
+export const SELLER_STOREHOUSE_BATCHES = [VERIFIED_STOREHOUSE_BATCH, ADMIN_PRODUCT_FEED_BATCH];
 
-async function isCatalogDatabaseAvailable(): Promise<boolean> {
+export async function isCatalogDatabaseAvailable(): Promise<boolean> {
   if (!process.env.DATABASE_URL?.trim()) return false;
   try { return await initDb(); } catch { return false; }
 }

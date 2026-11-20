@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CATEGORIES } from '@/data/categories';
-import { STOREHOUSE_CATEGORY_COUNTS } from '@/data/storehouseCatalogRules';
 import { STOREHOUSE_IMPORT_CATEGORIES } from '@/data/storehouseImportCategories';
 import {
   DemoProduct,
@@ -11,6 +10,12 @@ import {
   ProductFilterState,
 } from '@/types/product';
 import { queryDemoProducts, getProductById } from '@/lib/mock-products';
+import {
+  HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS,
+  STOREHOUSE_MIX_BATCH_SIZE,
+  type StorehouseMixFilters,
+  type StorehouseMixPage,
+} from '@/lib/storehouseMix';
 import { ProductImageWithFallback } from './ProductImageWithFallback';
 import { ProductDetailModal } from './ProductDetailModal';
 import {
@@ -34,7 +39,6 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 
-const HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS = new Set(['arts-craft-materials']);
 const CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS = new Set([
   'furniture-decor',
   'home-kitchen',
@@ -103,6 +107,30 @@ type BrowseCategory = {
   catalogProductCount?: number;
 };
 
+async function requestStorehouseMix(
+  filters: StorehouseMixFilters,
+  page: number,
+  pageSize: number,
+  snapshotId: string | undefined,
+  signal: AbortSignal,
+): Promise<StorehouseMixPage> {
+  const response = await fetch('/api/storehouse/catalog?view=mixed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...filters, page, pageSize, snapshotId }),
+    cache: 'no-store',
+    signal,
+  });
+  if (response.status === 401) {
+    throw new Error('Your seller sign-in has expired. Sign in again to load Storehouse products.');
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success || !Array.isArray(payload.products)) {
+    throw new Error(payload?.error || 'Storehouse product listings could not be loaded.');
+  }
+  return payload;
+}
+
 export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   remainingSlots,
   planLimit = 300,
@@ -131,6 +159,24 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(24);
   const [jumpPageInput, setJumpPageInput] = useState('');
+  const [mixedPage, setMixedPage] = useState<(StorehouseMixPage & {
+    filters: StorehouseMixFilters;
+    pageSize: number;
+  }) | null>(null);
+  const [mixedLoadError, setMixedLoadError] = useState('');
+  const [mixedRefresh, setMixedRefresh] = useState(0);
+  const mixedSnapshot = useRef<{ filters: StorehouseMixFilters; id: string } | null>(null);
+  const mixedBulkRequest = useRef<AbortController | null>(null);
+  const [isAddingMixedProducts, setIsAddingMixedProducts] = useState(false);
+  const isAllCategories = selectedCategory === 'All categories';
+  const mixedExcludedIds = hideAdded ? addedStorehouseIds : undefined;
+  const mixedFilters = useMemo<StorehouseMixFilters>(() => ({
+    searchQuery: debouncedSearch,
+    priceRange,
+    status: statusFilter,
+    sortBy,
+    excludedIds: mixedExcludedIds,
+  }), [debouncedSearch, mixedExcludedIds, priceRange, sortBy, statusFilter]);
 
   // Modal detail preview state
   const [modalProduct, setModalProduct] = useState<DemoProduct | null>(null);
@@ -179,12 +225,13 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   // SEARCH DEBOUNCING (300ms)
   // ---------------------------------------------------------------------------
   useEffect(() => {
+    if (searchInput === debouncedSearch) return;
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput);
       setPage(1); // Reset to page 1 on new search
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [debouncedSearch, searchInput]);
 
   // Subcategories list for the current selected category
   const activeCategoryDefinition = useMemo(() => {
@@ -195,10 +242,19 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
 
   const availableSubcategories = activeCategoryDefinition?.subcategories || [];
 
+  const refreshMixedCatalog = () => {
+    mixedSnapshot.current = null;
+    setMixedPage(null);
+    setMixedLoadError('');
+    setMixedRefresh((current) => current + 1);
+    setPage(1);
+  };
+
   const handleCategorySelect = (categoryName: string) => {
     setSelectedCategory(categoryName);
     setSelectedSubcategory('All');
     setPage(1);
+    if (categoryName === 'All categories') refreshMixedCatalog();
   };
 
   useEffect(() => {
@@ -211,7 +267,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   }, [activeCategoryDefinition, catalogCategories, selectedCategory, selectedSubcategory]);
 
   // ---------------------------------------------------------------------------
-  // QUERY THE DEMO CATALOG (Deterministic, Fast Memory Slice)
+  // Query the demo catalog only for the individual categories that use it.
   // ---------------------------------------------------------------------------
   const filterState: ProductFilterState = useMemo(() => {
     return {
@@ -238,47 +294,28 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   ]);
 
   const queryResult = useMemo(() => {
-    return queryDemoProducts(filterState, addedStorehouseIds);
-  }, [filterState, addedStorehouseIds]);
+    return isAllCategories ? null : queryDemoProducts(filterState, addedStorehouseIds);
+  }, [addedStorehouseIds, filterState, isAllCategories]);
 
-  const mixedCatalogCategories = useMemo(
-    () => catalogCategories.filter((category) => (STOREHOUSE_CATEGORY_COUNTS[category.name] || 0) > 0),
-    [catalogCategories]
-  );
-  const mixedCategoryProducts = useMemo(() => {
-    if (selectedCategory !== 'All categories' || sortBy !== 'default' || mixedCatalogCategories.length === 0) {
-      return queryResult.products;
-    }
+  useEffect(() => {
+    if (!isAllCategories) return;
+    const controller = new AbortController();
+    const snapshotId = mixedSnapshot.current?.filters === mixedFilters ? mixedSnapshot.current.id : undefined;
+    setMixedLoadError('');
+    requestStorehouseMix(mixedFilters, page, pageSize, snapshotId, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        mixedSnapshot.current = { filters: mixedFilters, id: result.snapshotId };
+        setMixedPage({ ...result, filters: mixedFilters, pageSize });
+        if (result.page !== page) setPage(result.page);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setMixedLoadError(error.message || 'Storehouse product listings could not be loaded.');
+      });
+    return () => controller.abort();
+  }, [isAllCategories, mixedFilters, mixedRefresh, page, pageSize]);
 
-    const requestedThroughPage = page * pageSize;
-    const productsPerCategory = Math.max(1, Math.ceil(requestedThroughPage / mixedCatalogCategories.length));
-    const categoryProductGroups = mixedCatalogCategories.map((category) => queryDemoProducts({
-      ...filterState,
-      category: category.name,
-      subcategory: 'All',
-      page: 1,
-      pageSize: productsPerCategory,
-    }, addedStorehouseIds).products);
-
-    const interleavedProducts: DemoProduct[] = [];
-    for (let index = 0; index < productsPerCategory; index += 1) {
-      for (const categoryProducts of categoryProductGroups) {
-        const product = categoryProducts[index];
-        if (product) interleavedProducts.push(product);
-      }
-    }
-
-    return interleavedProducts.slice((page - 1) * pageSize, page * pageSize);
-  }, [
-    addedStorehouseIds,
-    filterState,
-    mixedCatalogCategories,
-    page,
-    pageSize,
-    queryResult.products,
-    selectedCategory,
-    sortBy,
-  ]);
+  useEffect(() => () => mixedBulkRequest.current?.abort(), []);
 
   const [persistedCategoryData, setPersistedCategoryData] = useState<{
     category: string;
@@ -455,17 +492,20 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   ]);
 
   const isClearedDemoCategory = CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS.has(activeCategoryDefinition?.slug || '');
+  const matchingMix = mixedPage?.filters === mixedFilters ? mixedPage : null;
+  const currentMix = matchingMix?.page === page && matchingMix.pageSize === pageSize ? matchingMix : null;
+  const isMixedLoading = isAllCategories && !currentMix && !mixedLoadError;
   const totalCount = isManagedImportCategory
     ? filteredVerifiedProducts.length
-    : selectedCategory === 'All categories'
-      ? categoryCatalogTotal
-      : isClearedDemoCategory ? 0 : queryResult.totalCount;
+    : isAllCategories
+      ? matchingMix?.totalCount ?? 0
+      : isClearedDemoCategory ? 0 : queryResult?.totalCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const products = isManagedImportCategory
     ? filteredVerifiedProducts.slice((page - 1) * pageSize, page * pageSize)
-    : (selectedCategory === 'All categories' ? mixedCategoryProducts : queryResult.products).filter((product) => (
+    : isAllCategories ? currentMix?.products ?? [] : (queryResult?.products ?? []).filter((product) => (
       catalogCategories.some((category) => category.slug === product.categorySlug)
-      && (selectedCategory === 'All categories' || !CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS.has(product.categorySlug))
+      && !CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS.has(product.categorySlug)
     ));
   const pageProducts = products;
   const loadedCategoryProducts = persistedCategoryData?.category === selectedCategory
@@ -575,7 +615,48 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     );
   };
 
+  const addMixedCatalogProducts = async () => {
+    if (mixedBulkRequest.current || remainingSlots <= 0) return;
+    const controller = new AbortController();
+    mixedBulkRequest.current = controller;
+    setIsAddingMixedProducts(true);
+    try {
+      const filters = { ...mixedFilters, excludedIds: addedStorehouseIds };
+      const addedIds = new Set(addedStorehouseIds);
+      const eligible: DemoProduct[] = [];
+      let snapshotId: string | undefined;
+      for (let batch = 1; eligible.length < remainingSlots; batch += 1) {
+        const result = await requestStorehouseMix(filters, batch, STOREHOUSE_MIX_BATCH_SIZE, snapshotId, controller.signal);
+        if (result.page !== batch) throw new Error('The Storehouse changed while loading products. Please try again.');
+        snapshotId = result.snapshotId;
+        for (const product of result.products) {
+          if (addedIds.has(product.id)) continue;
+          addedIds.add(product.id);
+          eligible.push(product);
+        }
+        if (batch * STOREHOUSE_MIX_BATCH_SIZE >= result.totalCount) break;
+      }
+      if (controller.signal.aborted) return;
+      if (!eligible.length) {
+        notify('There are no new Storehouse products to add.');
+        return;
+      }
+      const toAdd = eligible.slice(0, remainingSlots);
+      if (onAddMultipleToShop) onAddMultipleToShop(toAdd);
+      else toAdd.forEach(onAddToShop);
+    } catch (error) {
+      if (!controller.signal.aborted) notify(error instanceof Error ? error.message : 'Could not load products to add.');
+    } finally {
+      mixedBulkRequest.current = null;
+      if (!controller.signal.aborted) setIsAddingMixedProducts(false);
+    }
+  };
+
   const handleAddAllCurrentCatalog = () => {
+    if (isAllCategories) {
+      void addMixedCatalogProducts();
+      return;
+    }
     if (isClearedDemoCategory) {
       notify('There are no products in this category to add.');
       return;
@@ -607,7 +688,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     setStatusFilter('all');
     setSortBy('default');
     setHideAdded(false);
-    setPage(1);
+    refreshMixedCatalog();
   };
 
   const hasActiveFilters =
@@ -632,8 +713,10 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   };
 
   // Calculate visible range numbers
-  const startItem = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
-  const endItem = Math.min(totalCount, page * pageSize);
+  const startItem = totalCount === 0 || (isAllCategories && !pageProducts.length) ? 0 : (page - 1) * pageSize + 1;
+  const endItem = startItem === 0 ? 0 : Math.min(totalCount, page * pageSize);
+  const productLoadError = isAllCategories ? mixedLoadError : catalogLoadError;
+  const isAddAllDisabled = remainingSlots <= 0 || isAddingMixedProducts;
 
   // Generate pagination numbers sliding window
   const paginationRange = useMemo(() => {
@@ -725,9 +808,9 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
             {/* "Add all to My Products" Button */}
             <button
               onClick={handleAddAllCurrentCatalog}
-              disabled={remainingSlots <= 0}
+              disabled={isAddAllDisabled}
               className={`px-4 py-2 font-bold text-xs rounded-lg shadow-sm transition-colors flex items-center gap-1.5 border ${
-                remainingSlots <= 0
+                isAddAllDisabled
                   ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
                   : 'bg-[#071324] hover:bg-[#11233b] text-white border-[#162740]'
               }`}
@@ -737,8 +820,8 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
                   : `Add all eligible products to My Products up to ${planLimit}`
               }
             >
-              <Plus className={`w-3.5 h-3.5 ${remainingSlots <= 0 ? 'text-gray-400' : 'text-[#cca23b]'}`} />
-              <span>Add all to My Products</span>
+              <Plus className={`w-3.5 h-3.5 ${isAddAllDisabled ? 'text-gray-400' : 'text-[#cca23b]'}`} />
+              <span>{isAddingMixedProducts ? 'Loading products…' : 'Add all to My Products'}</span>
             </button>
 
             {/* "Add Selected" Button (when products are selected) */}
@@ -938,7 +1021,9 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500 bg-gray-50/80 px-4 py-2.5 rounded-xl border border-gray-200/70">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-gray-700">
-            Showing {startItem.toLocaleString()}–{endItem.toLocaleString()} of {totalCount.toLocaleString()} products
+            {isMixedLoading
+              ? 'Loading Storehouse products…'
+              : `Showing ${startItem.toLocaleString()}–${endItem.toLocaleString()} of ${totalCount.toLocaleString()} products`}
           </span>
           {hasActiveFilters && (
             <span className="text-gray-400 font-mono">
@@ -976,35 +1061,43 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-400 space-y-3">
           <PackageOpen className="w-10 h-10 text-gray-300 mx-auto mb-2" />
           <h3 className="font-bold text-gray-800 text-base">
-            {isManagedImportCategory
+            {isAllCategories
+              ? isMixedLoading
+                ? 'Loading Storehouse products…'
+                : mixedLoadError || (hasActiveFilters ? 'No products match your filter criteria' : 'No Storehouse products are available yet')
+              : isManagedImportCategory
               ? isVerifiedProductsLoading
                 ? 'Loading verified product listings…'
                 : catalogLoadError || 'No verified products have been imported for this category yet'
               : 'No products match your filter criteria'}
           </h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto">
-            {isManagedImportCategory
-              ? !isVerifiedProductsLoading && !catalogLoadError && loadedCategoryProducts?.length === 0
-                ? 'There are no imported products in this category yet.'
-                : 'Only imported product records with their matching product photos are shown in this category.'
-              : 'Try clearing your search keyword or adjusting the price range.'}
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={handleResetFilters}
-              className="px-4 py-2 bg-[#071324] text-white text-xs font-bold rounded-lg hover:bg-[#11233b] transition-colors shadow-sm"
-            >
-              Reset all filters
-            </button>
-            {catalogLoadError.includes('seller sign-in has expired') && (
-              <a
-                href="/seller"
-                className="ml-2 inline-flex px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+          {(!isAllCategories || (hasActiveFilters && !isMixedLoading && !mixedLoadError)) && (
+            <p className="text-xs text-gray-500 max-w-md mx-auto">
+              {isManagedImportCategory
+                ? !isVerifiedProductsLoading && !catalogLoadError && loadedCategoryProducts?.length === 0
+                  ? 'There are no imported products in this category yet.'
+                  : 'Only imported product records with their matching product photos are shown in this category.'
+                : 'Try clearing your search keyword or adjusting the price range.'}
+            </p>
+          )}
+          {!isMixedLoading && (
+            <div className="pt-2">
+              <button
+                onClick={isAllCategories && mixedLoadError ? refreshMixedCatalog : handleResetFilters}
+                className="px-4 py-2 bg-[#071324] text-white text-xs font-bold rounded-lg hover:bg-[#11233b] transition-colors shadow-sm"
               >
-                Sign in again
-              </a>
-            )}
-          </div>
+                {isAllCategories && mixedLoadError ? 'Try again' : 'Reset all filters'}
+              </button>
+              {productLoadError.includes('seller sign-in has expired') && (
+                <a
+                  href="/seller"
+                  className="ml-2 inline-flex px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Sign in again
+                </a>
+              )}
+            </div>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         /* GRID VIEW: Direct Selection & Quick View (PRD) */
@@ -1352,6 +1445,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
 
             {/* Previous Page Button */}
             <button
+              aria-label="Previous page"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
               className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 font-medium hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
@@ -1390,6 +1484,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
 
             {/* Next Page Button */}
             <button
+              aria-label="Next page"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
               className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 font-medium hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1"

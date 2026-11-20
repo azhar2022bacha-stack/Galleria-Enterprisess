@@ -515,7 +515,7 @@ function LegacyShopContent() {
 
 function ShopContent() {
   const searchParams = useSearchParams();
-  return searchParams.get('catalog') === 'legacy' ? <LegacyShopContent /> : <StorehouseShop />;
+  return searchParams.get('catalog') === 'legacy' ? <LegacyShopContent /> : <StorehouseShop key={searchParams.toString()} />;
 }
 
 export default function ShopPage() {

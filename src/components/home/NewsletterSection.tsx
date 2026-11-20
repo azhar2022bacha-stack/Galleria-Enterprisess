@@ -31,79 +31,39 @@ export default function NewsletterSection() {
   };
 
   return (
-    <section className="bg-[#fbfaf7] py-12 sm:py-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
-        {/* Card Container */}
-        <div className="relative overflow-hidden rounded-3xl border border-[#e9e2d5] bg-[#f4f1ea] p-6 shadow-[0_22px_70px_-55px_rgba(20,38,61,0.55)] sm:p-8 md:p-10">
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-8">
-            
-            {/* Left & Center: Gold Icon + Text */}
-            <div className="flex items-center gap-5 w-full lg:w-auto">
-              
-              {/* Circular Gold Line Envelope Icon */}
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#dfd2bb] bg-white sm:h-16 sm:w-16">
-                <Mail className="h-6 w-6 text-[#a77e43] stroke-[1.4] sm:h-7 sm:w-7" />
-              </div>
-
-              {/* Headings */}
-              <div>
-                <h3 className="font-serif text-xl font-medium tracking-tight text-[#14263d] sm:text-2xl">
-                  A note from us
-                </h3>
-                <p className="text-xs sm:text-sm text-gray-500 mt-1 font-light">
-                  Occasional updates on new finds and store news.
-                </p>
-              </div>
-
-            </div>
-
-            {/* Right: Input & Subscribe Button */}
-            <div className="w-full lg:w-auto lg:min-w-[460px]">
-              <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (status !== 'idle') setStatus('idle');
-                  }}
-                  placeholder="Enter your email address"
-                  className="min-h-12 flex-1 rounded-full border border-[#e1dacd] bg-white px-5 text-xs text-[#17283e] placeholder-[#8b929b] transition-colors focus:border-[#b99152] focus:outline-none sm:text-sm"
-                  disabled={status === 'loading' || !newsletterEnabled}
-                />
-
-                <button
-                  type="submit"
-                  disabled={status === 'loading' || !newsletterEnabled}
-                  className="min-h-12 shrink-0 rounded-full bg-[#14263d] px-7 text-[10px] font-semibold tracking-[0.12em] text-white transition-colors hover:bg-[#203a5b] disabled:opacity-75 sm:text-xs"
-                >
-                  {status === 'loading' ? 'SUBSCRIBING...' : 'SUBSCRIBE'}
-                </button>
-              </form>
-
-              {!newsletterEnabled && (
-                <p className="mt-2 text-[10px] text-[#758092]">Newsletter signup is not connected in this preview.</p>
-              )}
-
-              {/* Status messages */}
-              {status === 'success' && (
-                <div className="flex items-center gap-1.5 text-emerald-600 text-xs mt-2 font-medium">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>{message}</span>
-                </div>
-              )}
-              {status === 'error' && (
-                <div className="flex items-center gap-1.5 text-rose-600 text-xs mt-2 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>{message}</span>
-                </div>
-              )}
-            </div>
-
+    <section aria-labelledby="store-newsletter" className="bg-[#eee7da] px-4 py-9 sm:px-8 sm:py-12 lg:px-12">
+      <div className="mx-auto grid max-w-[1344px] gap-5 lg:grid-cols-[1fr_minmax(0,560px)] lg:items-center">
+        <div className="flex items-start gap-3.5">
+          <Mail size={26} strokeWidth={1.55} aria-hidden="true" className="mt-1 shrink-0 text-[#806640]" />
+          <div>
+            <h2 id="store-newsletter" className="font-serif text-[1.65rem] leading-tight tracking-[-0.035em] text-[#14263d] sm:text-3xl">Store updates</h2>
+            <p className="mt-1.5 text-sm text-[#555a62]">Occasional emails about new products and store news.</p>
           </div>
         </div>
 
+        <div className="min-w-0">
+          <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 sm:flex-nowrap">
+            <input
+              type="email"
+              autoComplete="email"
+              aria-label="Email for store updates"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                if (status !== 'idle') setStatus('idle');
+              }}
+              placeholder="Your email address"
+              className="min-h-12 min-w-[12rem] flex-1 rounded-md border border-[#d2c5b1] bg-[#fffdf9] px-4 text-base text-[#14263d] placeholder:text-[#686b6f] focus:border-[#a77e43] focus:outline-none focus:ring-2 focus:ring-[#a77e43]/20 disabled:bg-[#f5f1e9] sm:text-sm"
+              disabled={status === 'loading' || !newsletterEnabled}
+            />
+            <button type="submit" disabled={status === 'loading' || !newsletterEnabled} className="min-h-12 shrink-0 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white transition hover:bg-[#203a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] disabled:opacity-60">
+              {status === 'loading' ? 'Subscribing…' : 'Subscribe'}
+            </button>
+          </form>
+          {!newsletterEnabled && <p className="mt-2 text-xs text-[#555a62]">Email signup is currently unavailable.</p>}
+          {status === 'success' && <p role="status" className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-800"><CheckCircle size={15} aria-hidden="true" />{message}</p>}
+          {status === 'error' && <p role="alert" className="mt-2 flex items-center gap-1.5 text-xs font-medium text-rose-800"><AlertCircle size={15} aria-hidden="true" />{message}</p>}
+        </div>
       </div>
     </section>
   );

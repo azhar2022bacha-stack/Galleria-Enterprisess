@@ -1,25 +1,37 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import {
-  Search,
-  User,
-  Heart,
-  ShoppingBag,
-  ChevronDown,
-  Menu,
-  X,
-  Percent,
-  Scale,
-  ChevronRight,
-} from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, Grid2X2, Heart, Menu, Scale, Search, ShoppingBag, UserRound, X } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
-import type { WebsiteInfo } from '@/lib/websiteInfo';
 import { STOREHOUSE_MAIN_CATEGORIES, TOTAL_MAIN_STOREHOUSE_PRODUCTS } from '@/data/storehouseMainCategories';
+import type { WebsiteInfo } from '@/lib/websiteInfo';
+
+const shopLinks = [
+  { href: '/shop', label: 'All products' },
+  { href: '/shop?sort=newest', label: 'New arrivals' },
+  { href: '/shop?featured=true', label: 'Best sellers' },
+  { href: '/deals', label: 'Special deals' },
+];
+
+const dealLinks = [
+  { href: '/deals', label: 'All promotions' },
+  { href: '/category/mens-fashion', label: "Men’s fashion edit" },
+  { href: '/category/bags-accessories', label: 'Luxury bags new arrivals' },
+  { href: '/category/sports-fitness', label: 'Sports & fitness deals' },
+];
+
+const mainLinks = [
+  { href: '/', label: 'Home' },
+  { href: '/about', label: 'About us' },
+  { href: '/contact', label: 'Contact' },
+];
+
+const iconButton = 'relative inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-full text-[#14263d] transition hover:bg-[#eee8dd] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] sm:w-11';
+const navLink = 'inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-[#414a53] transition hover:text-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a77e43]';
 
 export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const router = useRouter();
@@ -28,372 +40,205 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const { totalItems } = useCart();
   const { totalWishlistItems } = useWishlist();
   const { products: compareProducts } = useCompare();
-
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [activeDropdown, setActiveDropdown] = useState<'shop' | 'deals' | null>(null);
+  const dropdownRef = useRef<HTMLElement>(null);
+  const categoryDialogRef = useRef<HTMLDialogElement>(null);
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (!dropdownRef.current?.contains(event.target as Node)) setActiveDropdown(null);
+    };
+    const closeMenus = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !categoryDialogRef.current?.open) {
+        setActiveDropdown(null);
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeMenus);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeMenus);
+    };
+  }, []);
+
+  useEffect(() => {
+    setActiveDropdown(null);
+    setMobileMenuOpen(false);
+    setCategoryMenuOpen(false);
+    categoryDialogRef.current?.close();
+  }, [pathname]);
 
   useEffect(() => {
     if (!categoryMenuOpen) return;
     const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCategoryMenuOpen(false);
-    };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
-    };
+    return () => { document.body.style.overflow = previousOverflow; };
   }, [categoryMenuOpen]);
 
-  useEffect(() => {
-    if (isSellerStorefront) setCategoryMenuOpen(false);
-  }, [isSellerStorefront]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setActiveDropdown(null);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/shop?search=${encodeURIComponent(searchQuery.trim())}`);
-      setSearchQuery('');
-      setMobileMenuOpen(false);
-    }
+  const openCategories = () => {
+    const dialog = categoryDialogRef.current;
+    if (!dialog || dialog.open) return;
+    setActiveDropdown(null);
+    setMobileMenuOpen(false);
+    dialog.showModal();
+    setCategoryMenuOpen(true);
   };
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    router.push('/shop?search=' + encodeURIComponent(query));
+    setSearchQuery('');
+    setMobileMenuOpen(false);
+    setActiveDropdown(null);
+  };
+
+  const accountLinks = [
+    { href: '/account', label: 'Account', icon: UserRound, count: 0 },
+    { href: '/wishlist', label: 'Wishlist', icon: Heart, count: totalWishlistItems },
+    { href: '/compare', label: 'Compare products', icon: Scale, count: compareProducts.length },
+    { href: '/cart', label: 'Shopping Cart', icon: ShoppingBag, count: totalItems },
+  ];
+
+  const departmentsButton = 'inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md border border-[#e2d9ca] bg-[#f4efe6] px-3 text-xs font-semibold text-[#14263d] transition hover:bg-[#eae0d0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] sm:px-4';
 
   return (
     <>
-    <header className="sticky top-0 z-50 border-b border-[#e9e5dd] bg-[#fbfaf7]/95 shadow-[0_8px_30px_-26px_rgba(18,36,59,0.45)] backdrop-blur-xl">
-      <div className="mx-auto max-w-[1440px] px-3 sm:px-6 lg:px-10">
-        <div className="flex h-[68px] items-center justify-between gap-2 sm:h-[76px] sm:gap-4">
-
-          <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
-            {!isSellerStorefront && <button
-              type="button"
-              onClick={() => setCategoryMenuOpen(true)}
-              aria-label="Open browse by category menu"
-              aria-expanded={categoryMenuOpen}
-              aria-controls="store-category-drawer"
-              className="flex shrink-0 items-center gap-2 rounded-full border border-[#e6e1d8] bg-white px-2 py-2 text-[#14263d] shadow-sm transition hover:border-[#b99152] hover:bg-[#f8f6f1] sm:px-3"
-            >
-              <Menu className="h-4 w-4" />
-              <span className="hidden text-[9px] font-bold uppercase tracking-[0.1em] sm:inline">Categories</span>
-            </button>}
-            {/* Brand Logo */}
-            <Link href="/" className="flex min-w-0 flex-col items-start select-none group">
-              {websiteInfo.logoUrl ? <img src={websiteInfo.logoUrl} alt={`${websiteInfo.siteName} logo`} className="h-9 max-w-28 object-contain object-left sm:h-12 sm:max-w-40" /> : <span className="font-serif text-xl font-semibold tracking-[0.04em] leading-tight text-[#14263d] sm:text-[27px]">{websiteInfo.siteName.toUpperCase()}</span>}
-              {websiteInfo.tagline && <span className="mt-1.5 hidden text-[8px] font-semibold uppercase leading-none tracking-[0.2em] text-[#a77e43] transition-colors min-[375px]:inline sm:text-[9px]">{websiteInfo.tagline}</span>}
-            </Link>
-          </div>
-
-          {/* Desktop Navigation Links */}
-          <nav ref={dropdownRef} className="hidden xl:flex items-center space-x-5 text-[12px] font-medium tracking-wide text-[#14263d]">
-            {/* Home */}
-            <Link
-              href="/"
-              className={`py-2 border-b transition-colors ${pathname === '/' ? 'border-[#b99152] text-[#14263d]' : 'border-transparent text-[#617083] hover:border-[#b99152] hover:text-[#14263d]'}`}
-            >
-              Home
-            </Link>
-
-            {/* Shop Dropdown */}
-            <div
-              className="relative"
-              onMouseEnter={() => setActiveDropdown('shop')}
-              onMouseLeave={() => setActiveDropdown(null)}
-            >
-              <button
-                type="button"
-                onClick={() => setActiveDropdown(activeDropdown === 'shop' ? null : 'shop')}
-                className="flex items-center gap-1 hover:text-[#c5a059] py-2 transition-colors cursor-pointer"
-              >
-                <span>Shop</span>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-              </button>
-
-              {activeDropdown === 'shop' && (
-                <div className="absolute top-full left-0 z-50 w-64 rounded-2xl border border-[#e9e5dd] bg-white py-3 shadow-[0_22px_55px_-28px_rgba(18,36,59,0.45)] animate-fadeIn">
-                  <Link
-                    href="/shop"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-[#0c1b33] hover:text-[#c5a059] font-medium"
-                  >
-                    All Products
-                  </Link>
-                  <Link
-                    href="/shop?sort=newest"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-gray-700 hover:text-[#c5a059]"
-                  >
-                    New Arrivals
-                  </Link>
-                  <Link
-                    href="/shop?featured=true"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-gray-700 hover:text-[#c5a059]"
-                  >
-                    Best Sellers
-                  </Link>
-                  <div className="border-t border-gray-100 my-2"></div>
-                  <Link
-                    href="/deals"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 text-[#c5a059] font-medium hover:bg-amber-50/50 flex items-center justify-between"
-                  >
-                    <span>Special Deals</span>
-                    <Percent className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {/* Deals Dropdown */}
-            <div
-              className="relative"
-              onMouseEnter={() => setActiveDropdown('deals')}
-              onMouseLeave={() => setActiveDropdown(null)}
-            >
-              <button
-                type="button"
-                onClick={() => setActiveDropdown(activeDropdown === 'deals' ? null : 'deals')}
-                className="flex items-center gap-1 hover:text-[#c5a059] py-2 transition-colors cursor-pointer"
-              >
-                <span>Deals</span>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-              </button>
-
-              {activeDropdown === 'deals' && (
-                <div className="absolute top-full left-0 z-50 w-56 rounded-2xl border border-[#e9e5dd] bg-white py-2 shadow-[0_22px_55px_-28px_rgba(18,36,59,0.45)]">
-                  <Link
-                    href="/deals"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-[#0c1b33] font-medium"
-                  >
-                    All Promotions
-                  </Link>
-                  <Link
-                    href="/category/mens-fashion"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-xs text-gray-600"
-                  >
-                    Men&apos;s Fashion Edit
-                  </Link>
-                  <Link
-                    href="/category/bags-accessories"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-xs text-gray-600"
-                  >
-                    Luxury Bags New Arrivals
-                  </Link>
-                  <Link
-                    href="/category/sports-fitness"
-                    onClick={() => setActiveDropdown(null)}
-                    className="block px-4 py-2 hover:bg-gray-50 text-xs text-gray-600"
-                  >
-                    Sports & Fitness Deals
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {/* About Us */}
-            <Link
-              href="/about"
-              className="hover:text-[#c5a059] transition-colors py-1"
-            >
-              About Us
-            </Link>
-
-            {/* Contact */}
-            <Link
-              href="/contact"
-              className="hover:text-[#c5a059] transition-colors py-1"
-            >
-              Contact
-            </Link>
-
-          </nav>
-
-          {/* Right Controls: Search, Account, Wishlist, Cart */}
-          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
-            
-            {/* Search Input Box */}
-            <form onSubmit={handleSearchSubmit} role="search" className="relative hidden xl:block">
-              <input
-                type="text"
-                aria-label="Search the store"
-                placeholder="Search for products..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 rounded-full border border-[#e6e1d8] bg-[#f3f1eb] py-2 pl-4 pr-10 text-xs text-[#14263d] placeholder-[#8a929e] transition-all focus:border-[#b99152] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#b99152]/15 lg:w-64"
-              />
-              <button
-                type="submit"
-                aria-label="Search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-[#0c1b33]"
-              >
-                <Search className="w-3.5 h-3.5" />
-              </button>
-            </form>
-
-            {/* Account Icon */}
-            <Link
-              href="/account"
-              aria-label="Account"
-              className="rounded-full p-1 text-[#536174] transition-colors hover:bg-[#f0ede6] hover:text-[#14263d] sm:p-2"
-            >
-              <User className="h-4 w-4 stroke-[1.7] sm:h-5 sm:w-5" />
-            </Link>
-
-            {/* Wishlist Icon */}
-            <Link
-              href="/wishlist"
-              aria-label="Wishlist"
-              className="relative rounded-full p-1 text-[#536174] transition-colors hover:bg-[#f0ede6] hover:text-[#14263d] sm:p-2"
-            >
-              <Heart className="h-4 w-4 stroke-[1.7] sm:h-5 sm:w-5" />
-              {totalWishlistItems > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#b99152] px-1 text-[9px] font-bold text-white">
-                  {totalWishlistItems}
-                </span>
-              )}
-            </Link>
-
-            <Link href="/compare" aria-label={`Compare products (${compareProducts.length})`} className="relative rounded-full p-1 text-[#536174] transition-colors hover:bg-[#f0ede6] hover:text-[#14263d] sm:p-2">
-              <Scale className="h-4 w-4 stroke-[1.7] sm:h-5 sm:w-5" />
-              {compareProducts.length > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#b99152] px-1 text-[9px] font-bold text-white">{compareProducts.length}</span>}
-            </Link>
-
-            {/* Shopping Cart Icon with Item Count */}
-            <Link
-              href="/cart"
-              aria-label="Shopping Cart"
-              className="relative rounded-full p-1 text-[#536174] transition-colors hover:bg-[#f0ede6] hover:text-[#14263d] sm:p-2"
-            >
-              <ShoppingBag className="h-4 w-4 stroke-[1.7] sm:h-5 sm:w-5" />
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#14263d] px-1 text-[9px] font-bold text-white ring-2 ring-[#fbfaf7]">
-                {totalItems}
-              </span>
-            </Link>
-
-            {/* Mobile Hamburger Menu Toggle */}
+      <header className="sticky top-0 z-50 border-b border-[#e6ded0] bg-[#fffdf9]">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-8 lg:px-12">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 pb-3 pt-2 sm:gap-x-4 lg:grid-cols-[1fr_auto_1fr] lg:py-3">
             <button
               type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="rounded-full p-1 text-[#14263d] transition-colors hover:bg-[#f0ede6] xl:hidden sm:p-2"
-              aria-label="Toggle Navigation Menu"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              className={iconButton + ' lg:hidden'}
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="store-mobile-navigation"
             >
-              {mobileMenuOpen ? <X className="h-5 w-5 sm:h-6 sm:w-6" /> : <Menu className="h-5 w-5 sm:h-6 sm:w-6" />}
+              {mobileMenuOpen ? <X size={21} strokeWidth={1.65} /> : <Menu size={21} strokeWidth={1.65} />}
             </button>
 
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Drawer Menu */}
-      {mobileMenuOpen && (
-        <div className="animate-fadeIn border-t border-[#e9e5dd] bg-[#fbfaf7] px-4 pb-6 pt-4 shadow-lg xl:hidden">
-          {/* Mobile Search */}
-          <form onSubmit={handleSearchSubmit} className="relative mb-4">
-            <input
-              type="text"
-              placeholder="Search for products..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search the store"
-              className="w-full rounded-full border border-[#e6e1d8] bg-white py-3 pl-4 pr-10 text-sm focus:border-[#b99152] focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500"
-            >
-              <Search className="w-4 h-4" />
-            </button>
-          </form>
-
-          <nav className="flex flex-col space-y-2 text-sm font-medium text-[#14263d]">
-            <Link
-              href="/"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-2 py-1.5 rounded hover:bg-gray-50 text-[#c5a059]"
-            >
-              Home
-            </Link>
-            <Link
-              href="/shop"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-2 py-1.5 rounded hover:bg-gray-50"
-            >
-              Shop All Products
-            </Link>
-            <Link
-              href="/deals"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-2 py-1.5 rounded hover:bg-gray-50 text-red-600 font-semibold"
-            >
-              Special Deals %
-            </Link>
-            <Link
-              href="/about"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-2 py-1.5 rounded hover:bg-gray-50"
-            >
-              About Us
-            </Link>
-            <Link
-              href="/contact"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-2 py-1.5 rounded hover:bg-gray-50"
-            >
-              Contact
-            </Link>
-
-            
-          </nav>
-        </div>
-      )}
-    </header>
-    {categoryMenuOpen && !isSellerStorefront && (
-      <div className="fixed inset-0 z-[80]" role="presentation">
-        <button type="button" aria-label="Close category menu" onClick={() => setCategoryMenuOpen(false)} className="absolute inset-0 h-full w-full cursor-default bg-[#0c1b33]/45 backdrop-blur-[2px]" />
-        <aside id="store-category-drawer" role="dialog" aria-modal="true" aria-labelledby="store-category-title" className="absolute inset-y-0 left-0 flex w-[min(88vw,380px)] flex-col border-r border-[#e9e4da] bg-[#fbfaf7] shadow-[20px_0_60px_-28px_rgba(12,27,51,0.45)] animate-fadeIn">
-          <div className="flex items-center justify-between border-b border-[#e9e4da] px-5 py-5">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#a77e43]">Main store</p>
-              <h2 id="store-category-title" className="mt-1 font-serif text-2xl text-[#14263d]">Browse by category</h2>
+            <div className="order-last col-span-3 mt-2 flex min-w-0 gap-2 lg:order-first lg:col-span-1 lg:mt-0 lg:max-w-[300px]">
+              {!isSellerStorefront && (
+                <button type="button" onClick={openCategories} aria-haspopup="dialog" aria-expanded={categoryMenuOpen} aria-controls="store-category-drawer" className={departmentsButton + ' lg:hidden'}>
+                  <Grid2X2 size={15} strokeWidth={1.75} /> Departments
+                </button>
+              )}
+              <form onSubmit={handleSearchSubmit} role="search" className="relative min-w-0 flex-1">
+                <button type="submit" aria-label="Search" className="absolute inset-y-0 left-0 flex w-10 items-center justify-center rounded-l-md text-[#526071] hover:text-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a77e43]">
+                  <Search size={18} strokeWidth={1.7} />
+                </button>
+                <input
+                  type="search"
+                  aria-label="Search the store"
+                  placeholder="Search products"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="h-11 w-full rounded-md border border-[#e2d9ca] bg-white pl-10 pr-2 text-base text-[#14263d] placeholder:text-[#6b7075] transition focus:border-[#a77e43] focus:outline-none focus:ring-2 focus:ring-[#a77e43]/15 sm:pr-3 sm:text-sm"
+                />
+              </form>
             </div>
-            <button type="button" onClick={() => setCategoryMenuOpen(false)} aria-label="Close category menu" className="rounded-full p-2 text-[#526071] transition hover:bg-white hover:text-[#14263d]"><X className="h-5 w-5" /></button>
-          </div>
-          <div className="border-b border-[#e9e4da] p-4">
-            <Link href="/shop" onClick={() => setCategoryMenuOpen(false)} className="flex items-center justify-between rounded-xl bg-[#14263d] px-4 py-3 text-xs font-semibold text-white transition hover:bg-[#203a5b]">
-              <span>All categories</span><span className="text-[10px] text-white/75">{TOTAL_MAIN_STOREHOUSE_PRODUCTS.toLocaleString('en-US')} products</span>
+
+            <Link href="/" aria-label={websiteInfo.siteName + ' home'} className="min-w-0 justify-self-center rounded-sm py-1.5 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">
+              {websiteInfo.logoUrl ? (
+                <img src={websiteInfo.logoUrl} alt={websiteInfo.siteName} className="h-8 max-w-full object-contain sm:h-11 sm:max-w-40 lg:h-12 lg:max-w-56" />
+              ) : (
+                <span className="block truncate font-serif text-lg font-semibold uppercase leading-tight tracking-[0.12em] text-[#14263d] min-[380px]:text-xl sm:text-3xl lg:text-[2.15rem]">{websiteInfo.siteName}</span>
+              )}
             </Link>
+
+            <div className="flex items-center gap-0.5 justify-self-end sm:gap-1.5">
+              {accountLinks.map(({ href, label, icon: Icon, count }) => (
+                <Link key={href} href={href} aria-label={count > 0 || href === '/compare' ? label + ' (' + count + ')' : label} title={label} className={iconButton}>
+                  <Icon size={20} strokeWidth={1.65} aria-hidden="true" />
+                  {count > 0 && <span className="absolute right-0 top-0 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[#14263d] px-1 text-[9px] font-semibold text-white ring-2 ring-[#fffdf9]">{count}</span>}
+                </Link>
+              ))}
+            </div>
           </div>
-          <nav aria-label="Store categories" className="flex-1 overflow-y-auto px-3 py-3">
-            <p className="px-3 pb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-[#8791a0]">All departments</p>
-            {STOREHOUSE_MAIN_CATEGORIES.map((category) => (
-              <Link key={category.id} href={`/shop?category=${encodeURIComponent(category.slug)}`} onClick={() => setCategoryMenuOpen(false)} className="group flex items-center justify-between gap-3 rounded-xl px-3 py-3 text-sm text-[#526071] transition hover:bg-white hover:text-[#14263d] hover:shadow-sm">
-                <span className="font-medium">{category.name}</span>
-                <span className="flex shrink-0 items-center gap-2 text-[10px] text-[#8791a0]">{(category.catalogProductCount || 0).toLocaleString('en-US')} <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></span>
+
+          <div className="hidden grid-cols-[1fr_auto_1fr] items-center border-t border-[#eee7dc] lg:grid">
+            {!isSellerStorefront && (
+              <button type="button" onClick={openCategories} aria-haspopup="dialog" aria-expanded={categoryMenuOpen} aria-controls="store-category-drawer" className={departmentsButton + ' my-2 mr-auto min-h-9'}>
+                <Grid2X2 size={15} strokeWidth={1.75} /> Departments
+              </button>
+            )}
+            <nav ref={dropdownRef} aria-label="Main navigation" className="col-start-2 flex items-center gap-8 xl:gap-10">
+              <Link href="/" aria-current={pathname === '/' ? 'page' : undefined} className={navLink}>Home</Link>
+              {([{ id: 'shop', label: 'Shop', links: shopLinks }, { id: 'deals', label: 'Deals', links: dealLinks }] as const).map(({ id, label, links }) => (
+                <div key={id} className="relative">
+                  <button
+                    type="button"
+                    aria-expanded={activeDropdown === id}
+                    aria-controls={'store-nav-' + id}
+                    onClick={() => setActiveDropdown((current) => current === id ? null : id)}
+                    className={navLink}
+                  >
+                    {label} <ChevronDown size={14} strokeWidth={1.7} className={activeDropdown === id ? 'rotate-180' : ''} />
+                  </button>
+                  {activeDropdown === id && (
+                    <ul id={'store-nav-' + id} className="absolute left-1/2 top-full z-10 min-w-56 -translate-x-1/2 rounded-b-md border border-[#e6ded0] bg-[#fffdf9] p-2 shadow-[0_18px_40px_-15px_rgba(22,29,38,0.28)]">
+                      {links.map(({ href, label: itemLabel }) => (
+                        <li key={href}><Link href={href} className="block rounded-sm px-3 py-2.5 text-sm text-[#414a53] transition hover:bg-[#f4efe6] hover:text-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a77e43]" onClick={() => setActiveDropdown(null)}>{itemLabel}</Link></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              {mainLinks.slice(1).map(({ href, label }) => (
+                <Link key={href} href={href} aria-current={pathname === href ? 'page' : undefined} className={navLink}>{label}</Link>
+              ))}
+            </nav>
+          </div>
+        </div>
+
+        {mobileMenuOpen && (
+          <nav id="store-mobile-navigation" aria-label="Mobile navigation" className="max-h-[60dvh] overflow-y-auto border-t border-[#e6ded0] bg-[#fffdf9] px-4 py-3 shadow-lg sm:px-8 lg:hidden">
+            {[mainLinks[0], ...shopLinks, ...mainLinks.slice(1)].map(({ href, label }) => (
+              <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className="flex min-h-11 items-center justify-between rounded-sm px-2 text-sm font-medium text-[#14263d] hover:bg-[#f4efe6]">
+                {label} <ChevronRight size={16} strokeWidth={1.6} />
               </Link>
             ))}
           </nav>
-          <div className="border-t border-[#e9e4da] px-5 py-3 text-[9px] text-[#8791a0]">{STOREHOUSE_MAIN_CATEGORIES.length} departments · USD catalog</div>
-        </aside>
-      </div>
-    )}
+        )}
+      </header>
+
+      {!isSellerStorefront && (
+        <dialog
+          ref={categoryDialogRef}
+          id="store-category-drawer"
+          aria-labelledby="store-category-title"
+          onClose={() => setCategoryMenuOpen(false)}
+          onClick={(event) => { if (event.target === event.currentTarget) categoryDialogRef.current?.close(); }}
+          className="fixed inset-y-0 left-0 right-auto m-0 h-[100dvh] max-h-none w-[min(100%,410px)] max-w-none overflow-hidden bg-[#fffdf9] p-0 text-[#14263d] shadow-2xl backdrop:bg-[#101b2b]/55 backdrop:backdrop-blur-[2px]"
+        >
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between gap-4 border-b border-[#e6ded0] px-5 py-4 sm:px-6">
+              <h2 id="store-category-title" className="font-serif text-2xl tracking-tight">Shop by department</h2>
+              <button type="button" onClick={() => categoryDialogRef.current?.close()} aria-label="Close category menu" className={iconButton}><X size={21} strokeWidth={1.65} /></button>
+            </div>
+            <nav aria-label="Store categories" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
+              <Link href="/shop" onClick={() => categoryDialogRef.current?.close()} className="mb-3 flex min-h-12 items-center justify-between rounded-md bg-[#14263d] px-4 text-sm font-semibold text-white transition hover:bg-[#203a5b]">
+                <span>All products</span><span className="flex items-center gap-2 text-xs text-white/80">{TOTAL_MAIN_STOREHOUSE_PRODUCTS.toLocaleString('en-US')} <ArrowRight size={15} /></span>
+              </Link>
+              <ul className="divide-y divide-[#eee7dc]">
+                {STOREHOUSE_MAIN_CATEGORIES.map((category) => (
+                  <li key={category.id}>
+                    <Link href={'/shop?category=' + encodeURIComponent(category.slug)} prefetch={false} onClick={() => categoryDialogRef.current?.close()} className="group flex min-h-12 items-center justify-between gap-3 rounded-sm px-2 text-sm transition hover:bg-[#f4efe6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a77e43]">
+                      <span>{category.name}</span><span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-[#656f7a]">{(category.catalogProductCount || 0).toLocaleString('en-US')} <ChevronRight size={15} strokeWidth={1.65} /></span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
+        </dialog>
+      )}
     </>
   );
 }

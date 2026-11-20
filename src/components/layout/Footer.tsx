@@ -1,12 +1,10 @@
-'use client';
-
 import Link from 'next/link';
-import { ArrowUpRight, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Clock3, Mail, MapPin, Phone } from 'lucide-react';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
 
 const footerGroups = [
   {
-    title: 'Explore',
+    title: 'Shop',
     links: [
       { label: 'Shop all', href: '/shop' },
       { label: 'New arrivals', href: '/shop?sort=newest' },
@@ -19,68 +17,79 @@ const footerGroups = [
     links: [
       { label: 'Contact us', href: '/contact' },
       { label: 'Shipping information', href: '/about#shipping' },
-      { label: 'Returns and refunds', href: '/about#returns' },
+      { label: 'Returns & refunds', href: '/about#returns' },
       { label: 'Frequently asked questions', href: '/contact#faq' },
     ],
   },
   {
-    title: 'Our marketplace',
+    title: 'Company',
     links: [
+      { label: 'About us', href: '/about' },
       { label: 'Sell with Galleria', href: '/seller' },
-      { label: 'About Galleria', href: '/about' },
-      { label: 'Privacy Policy', href: '/privacy' },
+      { label: 'Privacy policy', href: '/privacy' },
       { label: 'Terms', href: '/about#terms' },
     ],
   },
 ];
 
+const footerLink = 'text-sm text-[#d6dce4] transition-colors hover:text-white hover:underline hover:underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#e0c494]';
+
 export default function Footer({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const socialLinks = [
-    ['Instagram', websiteInfo.instagramUrl], ['Facebook', websiteInfo.facebookUrl],
-    ['TikTok', websiteInfo.tiktokUrl], ['YouTube', websiteInfo.youtubeUrl], ['LinkedIn', websiteInfo.linkedInUrl],
+    ['Instagram', websiteInfo.instagramUrl],
+    ['Facebook', websiteInfo.facebookUrl],
+    ['TikTok', websiteInfo.tiktokUrl],
+    ['YouTube', websiteInfo.youtubeUrl],
+    ['LinkedIn', websiteInfo.linkedInUrl],
   ].filter((item): item is [string, string] => Boolean(item[1]));
+  const whatsApp = websiteInfo.whatsappNumber.replace(/[^\d]/g, '');
+  const hasContactInfo = websiteInfo.supportEmail || websiteInfo.contactPhone || websiteInfo.contactAddress || websiteInfo.openingHours || whatsApp;
 
   return (
-    <footer className="relative overflow-hidden bg-[#12243b] text-[#d7dfeb]">
-      <div className="pointer-events-none absolute -right-28 -top-36 h-96 w-96 rounded-full border border-white/[0.06]" />
-      <div className="pointer-events-none absolute -right-14 -top-20 h-64 w-64 rounded-full border border-white/[0.06]" />
-
-      <div className="relative mx-auto max-w-7xl px-4 pb-7 pt-14 sm:px-6 sm:pt-16 lg:px-8">
-        <div className="grid grid-cols-1 gap-10 border-b border-white/10 pb-10 sm:grid-cols-2 lg:grid-cols-[1.35fr_1fr_1fr_1fr] lg:gap-12 lg:pb-12">
-          <div className="max-w-sm">
-            <Link href="/" className="group inline-flex flex-col">
-              {websiteInfo.logoUrl ? <img src={websiteInfo.logoUrl} alt={`${websiteInfo.siteName} logo`} className="h-12 max-w-48 object-contain object-left" /> : <span className="font-serif text-3xl font-medium tracking-[0.02em] text-white">{websiteInfo.siteName.toUpperCase()}</span>}
-              {websiteInfo.tagline && <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.24em] text-[#d3b47d]">{websiteInfo.tagline}</span>}
+    <footer className="border-t border-[#ad9470] bg-[#14263d] text-white">
+      <div className="mx-auto max-w-[1440px] px-4 pb-6 pt-12 sm:px-8 sm:pt-16 lg:px-12">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-9 border-b border-white/15 pb-10 sm:grid-cols-3 sm:gap-x-8 lg:grid-cols-[1.45fr_1fr_1fr_1fr] lg:gap-x-12 lg:pb-14">
+          <div className="col-span-2 min-w-0 sm:col-span-3 lg:col-span-1">
+            <Link href="/" className="inline-block rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#e0c494]">
+              {websiteInfo.logoUrl ? (
+                <img src={websiteInfo.logoUrl} alt={websiteInfo.siteName} className="h-12 max-w-56 object-contain object-left" />
+              ) : (
+                <span className="block font-serif text-3xl font-medium uppercase tracking-[0.12em] text-white [overflow-wrap:anywhere] sm:text-4xl">{websiteInfo.siteName}</span>
+              )}
             </Link>
-            <p className="mt-5 max-w-xs text-sm leading-6 text-[#adbacb]">
-              {websiteInfo.aboutText ? `${websiteInfo.aboutText.slice(0, 220)}${websiteInfo.aboutText.length > 220 ? '…' : ''}` : websiteInfo.tagline}
-            </p>
-            {(websiteInfo.supportEmail || websiteInfo.contactPhone || websiteInfo.contactAddress) && <address className="mt-4 space-y-1.5 not-italic text-xs text-[#adbacb]">{websiteInfo.supportEmail && <a href={`mailto:${websiteInfo.supportEmail}`} className="block hover:text-white">{websiteInfo.supportEmail}</a>}{websiteInfo.contactPhone && <a href={`tel:${websiteInfo.contactPhone}`} className="block hover:text-white">{websiteInfo.contactPhone}</a>}{websiteInfo.contactAddress && <span className="block">{websiteInfo.contactAddress}</span>}</address>}
-            {socialLinks.length > 0 && <div className="mt-4 flex flex-wrap gap-x-3 gap-y-2">{socialLinks.map(([label, href]) => <a key={label} href={href} target="_blank" rel="noreferrer" className="text-[10px] font-semibold text-[#e5d0aa] transition hover:text-white">{label}</a>)}</div>}
-            <Link href="/shop" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.13em] text-[#e5d0aa] transition-colors hover:text-white">
-              Explore the store <ArrowUpRight className="h-4 w-4" />
-            </Link>
+            {(websiteInfo.aboutText || websiteInfo.tagline) && (
+              <p className="mt-3 max-w-[32ch] text-sm leading-6 text-[#d6dce4]">{websiteInfo.aboutText ? websiteInfo.aboutText.slice(0, 220) + (websiteInfo.aboutText.length > 220 ? '…' : '') : websiteInfo.tagline}</p>
+            )}
+            {hasContactInfo && (
+              <address className="mt-5 space-y-2.5 text-sm not-italic text-[#d6dce4]">
+                {websiteInfo.supportEmail && <a href={'mailto:' + websiteInfo.supportEmail} className={'flex items-start gap-2.5 break-all ' + footerLink}><Mail size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.supportEmail}</a>}
+                {websiteInfo.contactPhone && <a href={'tel:' + websiteInfo.contactPhone} className={'flex items-start gap-2.5 ' + footerLink}><Phone size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.contactPhone}</a>}
+                {whatsApp && <a href={'https://wa.me/' + whatsApp} target="_blank" rel="noreferrer" className={'inline-flex items-center gap-2 ' + footerLink}>WhatsApp support <ArrowUpRight size={14} aria-hidden="true" /></a>}
+                {websiteInfo.contactAddress && <p className="flex items-start gap-2.5"><MapPin size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.contactAddress}</p>}
+                {websiteInfo.openingHours && <p className="flex items-start gap-2.5"><Clock3 size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-[#e0c494]" />{websiteInfo.openingHours}</p>}
+              </address>
+            )}
           </div>
 
           {footerGroups.map((group) => (
             <nav key={group.title} aria-label={group.title}>
-              <h2 className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/90">{group.title}</h2>
-              <ul className="mt-5 space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.13em] text-[#ecd1a4]">{group.title}</h2>
+              <ul className="mt-4 space-y-3 sm:mt-5">
                 {group.links.map((link) => (
-                  <li key={link.label}>
-                    <Link href={link.href} className="text-xs text-[#adbacb] transition-colors hover:text-white">
-                      {link.label.replaceAll('Galleria', websiteInfo.siteName)}
-                    </Link>
-                  </li>
+                  <li key={link.href}><Link href={link.href} className={footerLink}>{link.label.replaceAll('Galleria', websiteInfo.siteName)}</Link></li>
                 ))}
               </ul>
             </nav>
           ))}
         </div>
 
-        <div className="flex flex-col gap-4 pt-6 text-[10px] text-[#9eacbe] sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} {websiteInfo.legalCompanyName || websiteInfo.siteName}. All rights reserved.</p>
-          <p className="inline-flex items-center gap-2"><Sparkles className="h-3 w-3 text-[#d3b47d]" /> {websiteInfo.tagline}</p>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 pt-5">
+          <p className="text-xs text-[#c5cfdd]">© {new Date().getFullYear()} {websiteInfo.legalCompanyName || websiteInfo.siteName}. All rights reserved.</p>
+          {socialLinks.length > 0 && (
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {socialLinks.map(([label, href]) => <a key={label} href={href} target="_blank" rel="noreferrer" className={footerLink}>{label}</a>)}
+            </div>
+          )}
         </div>
       </div>
     </footer>

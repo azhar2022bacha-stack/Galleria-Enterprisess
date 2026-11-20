@@ -1,57 +1,25 @@
-import React from 'react';
-import { PackageCheck, HeartHandshake, BadgeCheck, MessageCircle } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowUpRight, Headphones, PackageSearch, RotateCcw, Truck } from 'lucide-react';
 
-const BENEFITS = [
-  {
-    icon: PackageCheck,
-    title: 'Product details up front',
-    description: 'Review item information before ordering.',
-  },
-  {
-    icon: HeartHandshake,
-    title: 'A considered selection',
-    description: 'Browse fashion, home, and everyday finds.',
-  },
-  {
-    icon: BadgeCheck,
-    title: 'Clear order status',
-    description: 'See when a new order is still pending.',
-  },
-  {
-    icon: MessageCircle,
-    title: 'Need a hand?',
-    description: 'Reach the store through the contact page.',
-  },
+const serviceLinks = [
+  { href: '/about#shipping', title: 'Shipping information', icon: Truck },
+  { href: '/about#returns', title: 'Returns & refunds', icon: RotateCcw },
+  { href: '/account', title: 'Track an order', icon: PackageSearch },
+  { href: '/contact', title: 'Contact us', icon: Headphones },
 ];
 
 export default function ServiceBenefits() {
   return (
-    <section className="border-b border-[#eee9df] bg-white py-7 sm:py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 divide-y divide-[#eee9df] sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
-          {BENEFITS.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={index}
-                className="flex items-center gap-3.5 py-4 sm:px-4 sm:py-2 lg:px-6 first:lg:pl-0 last:lg:pr-0"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f5f1e8] text-[#a77e43]">
-                  <Icon className="h-5 w-5 stroke-[1.6]" />
-                </div>
-                <div>
-                  <h4 className="text-[11px] font-semibold leading-snug text-[#14263d] sm:text-xs">
-                    {item.title}
-                  </h4>
-                  <p className="mt-1 text-[10px] font-normal leading-relaxed text-[#758092] sm:text-[11px]">
-                    {item.description}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+    <nav aria-label="Shopping help" className="border-y border-[#e6ded0] bg-[#fffdf9] px-4 sm:px-8 lg:px-12">
+      <div className="mx-auto grid max-w-[1344px] grid-cols-2 lg:grid-cols-4">
+        {serviceLinks.map(({ href, title, icon: Icon }) => (
+          <Link key={href} href={href} className="group flex min-h-[72px] items-center gap-2 px-1.5 py-3 text-[#14263d] hover:text-[#765b34] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#a77e43] sm:min-h-[84px] sm:gap-3 sm:px-3">
+            <Icon size={21} strokeWidth={1.55} aria-hidden="true" className="shrink-0 text-[#806640]" />
+            <span className="text-sm font-semibold">{title}</span>
+            <ArrowUpRight size={15} strokeWidth={1.6} aria-hidden="true" className="ml-auto hidden shrink-0 text-[#806640] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 sm:block" />
+          </Link>
+        ))}
       </div>
-    </section>
+    </nav>
   );
 }

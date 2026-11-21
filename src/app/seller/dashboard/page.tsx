@@ -393,7 +393,10 @@ export default function SellerDashboardPage() {
             String(notification.title || '').toLowerCase().includes('delivered and wallet credited')
           );
           if (walletReturnNotification) {
-            notify('New notification: ' + (walletReturnNotification.title || 'Order delivered and wallet credited'));
+            const walletReturnMessage = Array.isArray(walletReturnNotification.message)
+              ? walletReturnNotification.message.map((part: any) => String(part?.text || '')).join('').trim()
+              : '';
+            notify(walletReturnMessage || walletReturnNotification.title || 'Order delivered and wallet credited');
           } else if (newlyUnread.length === 1) {
             notify('New notification: ' + (newlyUnread[0].title || 'New seller message'));
           } else if (newlyUnread.length > 1) {
@@ -836,7 +839,11 @@ export default function SellerDashboardPage() {
         // Keep the warning visible if this browser blocks notification audio.
       }
     }
-    const isWalletReturnNotification = normalizedMessage.includes('delivered and wallet credited');
+    const isWalletReturnNotification = normalizedMessage.includes('delivered and wallet credited') || (
+      normalizedMessage.startsWith('order ') &&
+      normalizedMessage.includes('has been delivered successfully to the buyer') &&
+      normalizedMessage.includes('has been credited to your wallet')
+    );
     notificationToastTimeoutRef.current = setTimeout(() => {
       setShowNotificationToast(null);
       notificationToastTimeoutRef.current = null;
@@ -999,9 +1006,11 @@ export default function SellerDashboardPage() {
     showNotificationToast?.toLowerCase().startsWith('your wallet balance is too low') ||
     showNotificationToast?.toLowerCase().startsWith('insufficient wallet balance.')
   );
-  const isWalletReturnToast = Boolean(
-    showNotificationToast?.toLowerCase().startsWith('new notification: order') &&
-    showNotificationToast?.toLowerCase().includes('delivered and wallet credited')
+  const normalizedToastMessage = showNotificationToast?.toLowerCase() || '';
+  const isWalletReturnToast = normalizedToastMessage.includes('delivered and wallet credited') || (
+    normalizedToastMessage.startsWith('order ') &&
+    normalizedToastMessage.includes('has been delivered successfully to the buyer') &&
+    normalizedToastMessage.includes('has been credited to your wallet')
   );
 
   return (

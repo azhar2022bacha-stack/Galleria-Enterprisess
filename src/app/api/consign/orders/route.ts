@@ -208,9 +208,9 @@ function orderNotificationDetails(order: PersistedConsignOrder) {
     return {
       title: `Order ${number} delivered and wallet credited`,
       message: [
-        { text: `Order ${number} for ${product} has been delivered. ` },
+        { text: `Order ${number} has been delivered successfully to the buyer. ` },
         { text: amountText, emphasis: 'blue' as const },
-        { text: ' has been credited back to your wallet. Your order commission is already included in your earnings.' },
+        { text: ' has been credited to your wallet.' },
       ],
       tone: 'success' as const,
       category: 'Earnings & Settlements' as const,

@@ -77,12 +77,21 @@ export interface ConsignOrder {
   shopperEmail: string;
   shippingAddress?: OrderShippingAddress;
   cost: number;
+  amount?: number;
   commission: number;
   commissionRate: string;
   sellerStatus?: SellerOrderStatus;
+  sellerPaidAt?: string;
+  sellerPaidAmount?: number;
+  sellerCommission?: number;
+  paymentAdjustmentId?: string;
+  adminConfirmedAt?: string;
+  settledAt?: string;
+  settlementAdjustmentId?: string;
   status:
     | 'Received · settled'
     | 'Paid · awaiting pickup'
+    | 'Paid · awaiting admin confirmation'
     | 'Paid · Escrow secured'
     | 'Awaiting payment'
     | 'Awaiting pickup'
@@ -128,6 +137,7 @@ function getConsignTrackerStatus(order: ConsignOrder): SellerOrderStatus | null 
 }
 
 function hasSellerPaidConsignOrder(order: ConsignOrder): boolean {
+  if (order.sellerPaidAt || order.paymentAdjustmentId || Number.isFinite(order.sellerPaidAmount)) return true;
   const sellerStatus = String(order.sellerStatus || '').trim().toLowerCase();
   if (sellerStatus && sellerStatus !== 'awaiting_payment') return true;
 
@@ -739,9 +749,10 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
           shopperName: shopperShipping.recipient,
           shopperEmail: shopperShipping.email,
           shippingAddress: shopperShipping,
-          cost: effectiveUnitCost,
-          commission: Number((effectiveUnitCost * 0.25).toFixed(2)),
-          commissionRate: '25%',
+          cost: perShopperCost,
+          amount: perShopperCost,
+          commission: Number((perShopperCost * 0.15).toFixed(2)),
+          commissionRate: '15%',
           status: 'Awaiting payment',
           date: 'Just now',
           products: orderProducts,
@@ -820,10 +831,14 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
   const filteredOrders = useMemo(() => {
     return orders.filter((ord) => {
       const refunded = Boolean(ord.refund) || ord.status === 'Refunded';
+      const awaitingAdminConfirmation = ord.status.startsWith('Paid') && !ord.adminConfirmedAt;
+      const matchesStatus = orderStatusFilter === 'Awaiting pickup'
+        ? ord.status.toLowerCase().includes('pickup') || awaitingAdminConfirmation
+        : ord.status.startsWith(orderStatusFilter);
       if (
         orderStatusFilter === 'Refunded'
           ? !refunded
-          : orderStatusFilter !== 'All' && (refunded || !ord.status.startsWith(orderStatusFilter))
+          : orderStatusFilter !== 'All' && (refunded || !matchesStatus)
       ) {
         return false;
       }
@@ -847,7 +862,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
       all: orders.length,
       refunded: orders.filter((o) => o.refund || o.status === 'Refunded').length,
       awaitingPayment: orders.filter((o) => o.status.startsWith('Awaiting payment')).length,
-      awaitingPickup: orders.filter((o) => o.status.startsWith('Awaiting pickup')).length,
+      awaitingPickup: orders.filter((o) => o.status.toLowerCase().includes('pickup') || (o.status.startsWith('Paid') && !o.adminConfirmedAt)).length,
       pickedUp: orders.filter((o) => o.status.startsWith('Picked up')).length,
       shipped: orders.filter((o) => o.status.startsWith('Shipped')).length,
       received: orders.filter((o) => o.status.startsWith('Received')).length,
@@ -956,6 +971,9 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
 
   const handleMarkPickedUp = (orderId: string) =>
     updateConsignOrderStatus(orderId, 'Picked up', 'picked_up', 'Order marked as picked up.');
+
+  const handleConfirmPaidOrder = (orderId: string) =>
+    updateConsignOrderStatus(orderId, 'Paid · awaiting pickup', 'confirmed', 'Seller payment confirmed. Order is ready for pickup.');
 
   const handleMarkShipped = (orderId: string) =>
     updateConsignOrderStatus(orderId, 'Shipped · in transit', 'on_the_way', 'Order marked as on the way.');
@@ -2238,6 +2256,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                   const isRejected = rejectedOrderKeys.has(ord.id) || rejectedOrderKeys.has(normalizedOrderNumber);
                   const trackerStatus = isRefunded || isRejected || isCancelled ? null : getConsignTrackerStatus(ord);
                   const trackerStageIndex = trackerStatus ? CONSIGN_TRACKER_STAGE_INDEX[trackerStatus] : -1;
+                  const sellerPaid = hasSellerPaidConsignOrder(ord);
                   const itemImage =
                     ord.products?.find((product) => product.image || product.imageUrl)?.image ||
                     ord.products?.find((product) => product.imageUrl)?.imageUrl ||
@@ -2387,6 +2406,11 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                           <div className="inline-flex items-center justify-center px-3 py-1 rounded-md bg-gray-100 border border-gray-200 text-gray-600 text-[11px] font-medium leading-tight select-none">
                             <span>Cancelled</span>
                           </div>
+                        ) : ord.status.startsWith('Paid') && !ord.adminConfirmedAt ? (
+                          <div className="inline-flex flex-col items-center justify-center px-3 py-1 rounded-md bg-[#f0fdf4] border border-[#dcfce7] text-[#15803d] text-[11px] font-medium leading-tight select-none">
+                            <span>Paid ·</span>
+                            <span>awaiting admin confirmation</span>
+                          </div>
                         ) : ord.status.startsWith('Awaiting payment') ? (
                           <div className="inline-flex flex-col items-center justify-center px-3 py-1 rounded-md bg-[#fff7ed] border border-[#ffedd5] text-[#c2410c] text-[11px] font-medium leading-tight select-none">
                             <span>Awaiting</span>
@@ -2431,7 +2455,9 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                                 {CONSIGN_TRACKER_STAGES.map((stage, stageIndex) => {
                                   const complete = stageIndex < trackerStageIndex;
                                   const current = stageIndex === trackerStageIndex;
-                                  const canSelectStage = stageIndex === trackerStageIndex || (trackerStageIndex > 0 && stageIndex === trackerStageIndex + 1) || (trackerStageIndex >= 2 && stageIndex >= 2 && stageIndex < trackerStageIndex);
+                                  const canSelectStage = stageIndex === trackerStageIndex ||
+                                    (trackerStageIndex === 0 && stageIndex === 1 && sellerPaid) ||
+                                    (trackerStageIndex > 0 && stageIndex === trackerStageIndex + 1);
                                   return (
                                     <button
                                       key={stage.status}
@@ -2442,7 +2468,8 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         if (!canSelectStage) return;
-                                        if (stageIndex === 2) handleMarkPickedUp(ord.id);
+                                        if (stageIndex === 1) handleConfirmPaidOrder(ord.id);
+                                        else if (stageIndex === 2) handleMarkPickedUp(ord.id);
                                         else if (stageIndex === 3) handleMarkShipped(ord.id);
                                         else if (stageIndex === 4) handleMarkDelivered(ord.id);
                                       }}
@@ -2466,6 +2493,11 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
                               {trackerStageIndex === 0 && ord.status.startsWith('Awaiting payment') && (
                                 <div className="flex items-center gap-2">
                                   <span className="text-[10px] text-amber-700">Waiting for merchant payment</span>
+                                </div>
+                              )}
+                              {trackerStageIndex === 0 && sellerPaid && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-emerald-700">Seller paid · awaiting admin confirmation</span>
                                 </div>
                               )}
                             </div>

@@ -596,10 +596,10 @@ export function SellerWalletPanel({
                     </td>
                     <td
                       className={`py-3 px-4 font-bold text-right ${
-                        tx.type === 'withdrawal' ? 'text-rose-600' : 'text-[#059669]'
+                        tx.type === 'withdrawal' || tx.type === 'order_payment' ? 'text-rose-600' : 'text-[#059669]'
                       }`}
                     >
-                      {tx.type === 'withdrawal' ? '-' : '+'}
+                      {tx.type === 'withdrawal' || tx.type === 'order_payment' ? '-' : '+'}
                       {money(tx.amount)}
                     </td>
                   </tr>

@@ -51,7 +51,15 @@ export interface SellerOrder {
   shippingAddress?: OrderShippingAddress;
   products: SellerOrderProduct[];
   amount: number;
+  commission?: number;
+  commissionRate?: string;
   sellerPaidAmount?: number;
+  sellerCommission?: number;
+  sellerPaidAt?: string;
+  paymentAdjustmentId?: string;
+  adminConfirmedAt?: string;
+  settledAt?: string;
+  settlementAdjustmentId?: string;
   paymentMethod: string;
   status: SellerOrderStatus;
   createdAt: string;
@@ -288,7 +296,9 @@ function formatLocationFromShipping(
 }
 
 function buildSellerOrderFromConsignRecord(co: any): SellerOrder {
-  const mappedStatus =
+  const mappedStatus = co.sellerPaidAt
+    ? (co.sellerStatus === 'delivered' ? 'delivered' : co.sellerStatus === 'on_the_way' ? 'on_the_way' : co.sellerStatus === 'picked_up' ? 'picked_up' : 'confirmed')
+    :
     (co.sellerStatus as SellerOrderStatus) ||
     CONSIGN_STATUS_TO_SELLER[co.status] ||
     'awaiting_payment';
@@ -334,6 +344,15 @@ function buildSellerOrderFromConsignRecord(co: any): SellerOrder {
       image: p.image || p.imageUrl,
     })),
     amount: Math.round(totalAmt * 100) / 100,
+    ...(Number.isFinite(Number(co.commission)) ? { commission: Number(co.commission) } : {}),
+    ...(co.commissionRate ? { commissionRate: String(co.commissionRate) } : {}),
+    ...(Number.isFinite(Number(co.sellerPaidAmount)) ? { sellerPaidAmount: Number(co.sellerPaidAmount) } : {}),
+    ...(Number.isFinite(Number(co.sellerCommission ?? co.commission)) ? { sellerCommission: Number(co.sellerCommission ?? co.commission) } : {}),
+    ...(co.sellerPaidAt ? { sellerPaidAt: co.sellerPaidAt } : {}),
+    ...(co.paymentAdjustmentId ? { paymentAdjustmentId: co.paymentAdjustmentId } : {}),
+    ...(co.adminConfirmedAt ? { adminConfirmedAt: co.adminConfirmedAt } : {}),
+    ...(co.settledAt ? { settledAt: co.settledAt } : {}),
+    ...(co.settlementAdjustmentId ? { settlementAdjustmentId: co.settlementAdjustmentId } : {}),
     paymentMethod: 'Consign Escrow',
     status: mappedStatus,
     createdAt:
@@ -373,11 +392,21 @@ export function getOrders(filterEmail?: string): SellerOrder[] {
               modified = true;
             } else {
               const existing = parsed[existingIdx];
-              const mappedStatus =
-                (co.sellerStatus as SellerOrderStatus) || CONSIGN_STATUS_TO_SELLER[co.status];
+              const mappedStatus: SellerOrderStatus | undefined = co.sellerPaidAt && co.sellerStatus === 'awaiting_payment'
+                ? 'confirmed'
+                : (co.sellerStatus as SellerOrderStatus) || CONSIGN_STATUS_TO_SELLER[co.status];
               const needShippingHydration = !existing.shippingAddress && Boolean(co.shippingAddress);
               const needStatusSync = mappedStatus && existing.status !== mappedStatus && existing.source === 'consign';
-              if (needShippingHydration || needStatusSync) {
+              const needPaymentSync = Boolean(
+                existing.sellerPaidAt !== co.sellerPaidAt ||
+                existing.sellerPaidAmount !== co.sellerPaidAmount ||
+                existing.sellerCommission !== (co.sellerCommission ?? co.commission) ||
+                existing.paymentAdjustmentId !== co.paymentAdjustmentId ||
+                existing.adminConfirmedAt !== co.adminConfirmedAt ||
+                existing.settledAt !== co.settledAt ||
+                existing.settlementAdjustmentId !== co.settlementAdjustmentId
+              );
+              if (needShippingHydration || needStatusSync || needPaymentSync) {
                 parsed[existingIdx] = {
                   ...existing,
                   ...(needShippingHydration
@@ -393,6 +422,13 @@ export function getOrders(filterEmail?: string): SellerOrder[] {
                       { status: mappedStatus, at: co.updatedAt || new Date().toISOString() },
                     ],
                   } : {}),
+                  ...(Number.isFinite(Number(co.sellerPaidAmount)) ? { sellerPaidAmount: Number(co.sellerPaidAmount) } : {}),
+                  ...(Number.isFinite(Number(co.sellerCommission ?? co.commission)) ? { sellerCommission: Number(co.sellerCommission ?? co.commission) } : {}),
+                  ...(co.sellerPaidAt ? { sellerPaidAt: co.sellerPaidAt } : {}),
+                  ...(co.paymentAdjustmentId ? { paymentAdjustmentId: co.paymentAdjustmentId } : {}),
+                  ...(co.adminConfirmedAt ? { adminConfirmedAt: co.adminConfirmedAt } : {}),
+                  ...(co.settledAt ? { settledAt: co.settledAt } : {}),
+                  ...(co.settlementAdjustmentId ? { settlementAdjustmentId: co.settlementAdjustmentId } : {}),
 
                 };
                 modified = true;
@@ -520,6 +556,7 @@ export async function syncConsignOrdersFromServer(merchantEmail?: string): Promi
 
     const byId = new Map(localConsign.map((o: any) => [o.id, o]));
     let consignChanged = false;
+    let walletSettlementAppeared = false;
 
     for (const srv of data.orders) {
       if (!srv?.id) continue;
@@ -528,13 +565,24 @@ export async function syncConsignOrdersFromServer(merchantEmail?: string): Promi
         localConsign.unshift(srv);
         byId.set(srv.id, srv);
         consignChanged = true;
+        if (srv.settlementAdjustmentId) walletSettlementAppeared = true;
       } else if (
         cur.status !== srv.status ||
         cur.sellerStatus !== srv.sellerStatus ||
         cur.updatedAt !== srv.updatedAt ||
         (!cur.shippingAddress && srv.shippingAddress) ||
-        (srv.refund && cur.refund?.id !== srv.refund.id)
+        (srv.refund && cur.refund?.id !== srv.refund.id) ||
+        cur.sellerPaidAt !== srv.sellerPaidAt ||
+        cur.sellerPaidAmount !== srv.sellerPaidAmount ||
+        cur.sellerCommission !== (srv.sellerCommission ?? srv.commission) ||
+        cur.paymentAdjustmentId !== srv.paymentAdjustmentId ||
+        cur.adminConfirmedAt !== srv.adminConfirmedAt ||
+        cur.settledAt !== srv.settledAt ||
+        cur.settlementAdjustmentId !== srv.settlementAdjustmentId
       ) {
+        if (srv.settlementAdjustmentId && cur.settlementAdjustmentId !== srv.settlementAdjustmentId) {
+          walletSettlementAppeared = true;
+        }
         const merged = {
           ...cur,
           status: srv.status || cur.status,
@@ -542,6 +590,16 @@ export async function syncConsignOrdersFromServer(merchantEmail?: string): Promi
           updatedAt: srv.updatedAt || cur.updatedAt,
           shippingAddress: srv.shippingAddress || cur.shippingAddress,
           refund: srv.refund || cur.refund,
+          amount: Number.isFinite(Number(srv.amount ?? srv.cost)) ? Number(srv.amount ?? srv.cost) : cur.amount,
+          commission: Number.isFinite(Number(srv.commission)) ? Number(srv.commission) : cur.commission,
+          commissionRate: srv.commissionRate || cur.commissionRate,
+          sellerPaidAt: srv.sellerPaidAt || cur.sellerPaidAt,
+          sellerPaidAmount: Number.isFinite(Number(srv.sellerPaidAmount)) ? Number(srv.sellerPaidAmount) : cur.sellerPaidAmount,
+          sellerCommission: Number.isFinite(Number(srv.sellerCommission ?? srv.commission)) ? Number(srv.sellerCommission ?? srv.commission) : cur.sellerCommission,
+          paymentAdjustmentId: srv.paymentAdjustmentId || cur.paymentAdjustmentId,
+          adminConfirmedAt: srv.adminConfirmedAt || cur.adminConfirmedAt,
+          settledAt: srv.settledAt || cur.settledAt,
+          settlementAdjustmentId: srv.settlementAdjustmentId || cur.settlementAdjustmentId,
 
         };
         localConsign = localConsign.map((item: any) => (item.id === srv.id ? merged : item));
@@ -554,6 +612,7 @@ export async function syncConsignOrdersFromServer(merchantEmail?: string): Promi
       getOrders(); // Imports/hydrates into ORDERS_KEY
       emitChange();
     }
+    if (walletSettlementAppeared) await syncApprovedRecharges();
     await syncConsignStatusHistoryFromNotifications(merchantEmail);
   } catch {}
 }
@@ -568,6 +627,22 @@ function sellerStorageKey(key: string): string {
  let email = '';
  if (typeof window !== 'undefined') { try { email = JSON.parse(window.localStorage.getItem('galleria_active_seller') || '{}').email || ''; } catch {} }
  return key + ':' + (email.trim().toLowerCase() || 'guest');
+}
+
+export function getSyncedWalletAdjustmentTotalCents(): number {
+  if (!isBrowser()) return 0;
+  const value = Number(window.localStorage.getItem(sellerStorageKey('galleria_admin_wallet_adjustments_total')) || '0');
+  return Number.isSafeInteger(value) ? value : 0;
+}
+
+export function applySyncedWalletAdjustmentTotalCents(totalCents: number): void {
+  if (!isBrowser() || !Number.isSafeInteger(totalCents)) return;
+  const previousCents = getSyncedWalletAdjustmentTotalCents();
+  const deltaCents = totalCents - previousCents;
+  if (deltaCents !== 0) {
+    setWallet((amountToCents(getWallet()) + deltaCents) / 100);
+    window.localStorage.setItem(sellerStorageKey('galleria_admin_wallet_adjustments_total'), String(totalCents));
+  }
 }
 
 export async function syncApprovedRecharges(): Promise<void> {
@@ -621,19 +696,17 @@ export async function syncApprovedRecharges(): Promise<void> {
       (sum: number, row: any) => sum + Math.round(Number(row.amount || 0) * 100),
       0
     );
-    const key = sellerStorageKey('galleria_admin_wallet_adjustments_total');
-    const previousCents = Number(window.localStorage.getItem(key) || '0');
-    const deltaCents = totalCents - previousCents;
-    if (deltaCents !== 0) {
-      setWallet((Math.round(getWallet() * 100) + deltaCents) / 100);
-      window.localStorage.setItem(key, String(totalCents));
-    }
+    applySyncedWalletAdjustmentTotalCents(totalCents);
     for (const row of walletAdjustments) {
       const id = `admin-wallet-adjustment-${row.id}`;
       if (!getTransactions().some((transaction) => transaction.id === id)) {
         addWalletTransaction({
           id,
-          type: Number(row.amount) < 0 ? 'withdrawal' : 'rebate',
+          type: row.eventType === 'consign-order-payment'
+            ? 'order_payment'
+            : row.eventType === 'consign-order-delivery'
+              ? 'order_payout'
+              : Number(row.amount) < 0 ? 'withdrawal' : 'rebate',
           amount: Math.abs(Number(row.amount)),
           description: row.reason || 'Galleria Enterprises, Inc. wallet adjustment',
           status: 'completed',
@@ -1288,8 +1361,7 @@ function calculateCommissionCents(totalCents: number, commissionRate: number): n
   return fullDollars * commissionRate + Math.floor((remainingCents * commissionRate + 50) / 100);
 }
 
-export function orderPaymentBreakdown(amount: number, tierId: PackageTierId = getCurrentTier()) {
-  const commissionRate = PACKAGE_TIERS.find((tier) => tier.id === tierId)?.rebatePercent ?? PACKAGE_TIERS[0].rebatePercent;
+export function orderPaymentBreakdownAtRate(amount: number, commissionRate: number) {
   const totalCents = amountToCents(amount);
   if (!Number.isSafeInteger(totalCents) || totalCents < 0) {
     return { commission: Number.NaN, payable: Number.NaN, commissionRate, payableRate: 100 - commissionRate };
@@ -1303,14 +1375,28 @@ export function orderPaymentBreakdown(amount: number, tierId: PackageTierId = ge
   };
 }
 
-export function paySellerOrders(ids: string[]): {
+export function orderPaymentBreakdown(amount: number, tierId: PackageTierId = getCurrentTier()) {
+  const commissionRate = PACKAGE_TIERS.find((tier) => tier.id === tierId)?.rebatePercent ?? PACKAGE_TIERS[0].rebatePercent;
+  return orderPaymentBreakdownAtRate(amount, commissionRate);
+}
+
+export const CONSIGN_SELLER_COMMISSION_RATE = 15;
+
+export function sellerOrderPaymentBreakdown(order: Pick<SellerOrder, 'amount' | 'source' | 'consignOrderId'>) {
+  return order.source === 'consign' || Boolean(order.consignOrderId)
+    ? orderPaymentBreakdownAtRate(order.amount, CONSIGN_SELLER_COMMISSION_RATE)
+    : orderPaymentBreakdown(order.amount);
+}
+
+export async function paySellerOrders(ids: string[]): Promise<{
   success: boolean;
   error?: string;
   orderCount?: number;
   gross?: number;
   commission?: number;
   payable?: number;
-} {
+}> {
+  if (!isBrowser()) return { success: false, error: 'Seller sign-in is required to pay an order.' };
   const selectedIds = Array.from(new Set(ids.filter(Boolean)));
   if (selectedIds.length === 0) return { success: false, error: 'There are no unpaid orders to pay.' };
 
@@ -1322,19 +1408,20 @@ export function paySellerOrders(ids: string[]): {
     return { success: false, error: 'One or more orders are no longer unpaid. Refresh and try again.' };
   }
 
-  const commissionRate = getCurrentPackageTier().rebatePercent;
-  const tierId = getCurrentTier();
   let grossCents = 0;
   let commissionCents = 0;
+  const paymentBreakdowns = new Map<string, ReturnType<typeof sellerOrderPaymentBreakdown>>();
   for (const order of selectedOrders) {
     if (!Number.isFinite(order.amount) || order.amount <= 0) {
       return { success: false, error: `Order ${order.code} has an invalid amount.` };
     }
     const orderCents = amountToCents(order.amount);
-    const orderCommissionCents = amountToCents(orderPaymentBreakdown(order.amount, tierId).commission);
+    const breakdown = sellerOrderPaymentBreakdown(order);
+    const orderCommissionCents = amountToCents(breakdown.commission);
     if (!Number.isSafeInteger(orderCents) || !Number.isSafeInteger(orderCommissionCents)) {
       return { success: false, error: `Order ${order.code} has an invalid amount.` };
     }
+    paymentBreakdowns.set(order.id, breakdown);
     grossCents += orderCents;
     commissionCents += orderCommissionCents;
     if (!Number.isSafeInteger(grossCents) || !Number.isSafeInteger(commissionCents)) {
@@ -1356,68 +1443,111 @@ export function paySellerOrders(ids: string[]): {
     };
   }
 
-  const now = new Date().toISOString();
-  const selectedSet = new Set(selectedIds);
-  const updated = currentOrders.map((order) =>
-    selectedSet.has(order.id)
+  const consignOrders = selectedOrders.filter((order) => order.source === 'consign' || Boolean(order.consignOrderId));
+  const localOrders = selectedOrders.filter((order) => !consignOrders.includes(order));
+
+  if (consignOrders.length > 0) {
+    const sellerEmail = resolveSellerEmail(consignOrders[0].sellerEmail || consignOrders[0].merchantEmail);
+    if (!sellerEmail) return { success: false, error: 'Seller sign-in is required to pay a consignment order.' };
+    let response: Response;
+    let data: any;
+    try {
+      response = await fetch('/api/consign/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'seller-pay',
+          orderIds: consignOrders.map((order) => order.consignOrderId || order.id),
+          walletBalanceCents: balanceCents,
+          walletAdjustmentTotalCents: getSyncedWalletAdjustmentTotalCents(),
+        }),
+      });
+      data = await response.json().catch(() => null);
+    } catch {
+      return { success: false, error: 'The order service could not be reached. Your wallet was not changed; please try again.' };
+    }
+    if (!response.ok || !data?.success) {
+      return { success: false, error: data?.error || 'The consignment order payment could not be completed.' };
+    }
+
+    await syncApprovedRecharges();
+    if (Number.isSafeInteger(data.walletAdjustmentTotalCents) && getSyncedWalletAdjustmentTotalCents() < data.walletAdjustmentTotalCents) {
+      applySyncedWalletAdjustmentTotalCents(data.walletAdjustmentTotalCents);
+    }
+    await syncConsignOrdersFromServer(sellerEmail);
+  }
+
+  if (localOrders.length > 0) {
+    const localPayableCents = localOrders.reduce((sum, order) =>
+      sum + amountToCents(paymentBreakdowns.get(order.id)!.payable), 0);
+    const latestBalanceCents = amountToCents(getWallet());
+    if (!Number.isSafeInteger(latestBalanceCents) || latestBalanceCents < localPayableCents) {
+      return { success: false, error: 'Your consignment payment was completed, but the remaining wallet balance is too low for the other selected orders.' };
+    }
+
+    const now = new Date().toISOString();
+    const localIds = new Set(localOrders.map((order) => order.id));
+    const currentAfterSync = getOrders();
+    const updated = currentAfterSync.map((order) => localIds.has(order.id)
       ? {
           ...order,
           status: 'confirmed' as SellerOrderStatus,
-          sellerPaidAmount: orderPaymentBreakdown(order.amount, tierId).payable,
+          sellerPaidAmount: paymentBreakdowns.get(order.id)!.payable,
           history: [...order.history, { status: 'confirmed' as SellerOrderStatus, at: now }],
         }
       : order
-  );
-
-  setWallet((balanceCents - payableCents) / 100);
-  addWalletTransaction({
-    id: selectedOrders.length === 1 ? 'tx-pay-' + selectedOrders[0].id : 'tx-pay-all-' + Date.now(),
-    type: 'order_payment',
-    amount: payableCents / 100,
-    description: selectedOrders.length === 1
-      ? 'Order ' + selectedOrders[0].code + ' payment (' + (100 - commissionRate) + '% after commission)'
-      : 'One-click payment for ' + selectedOrders.length + ' orders (' + (100 - commissionRate) + '% after ' + commissionRate + '% commission)',
-    status: 'completed',
-    createdAt: now,
-  });
-  saveOrders(updated);
-  syncStatusToConsign(updated);
-  for (const order of selectedOrders) {
-    const sellerEmail = resolveSellerEmail(order.sellerEmail || order.merchantEmail);
-    const chargedAmount = orderPaymentBreakdown(order.amount, tierId).payable;
-    const formattedAmount = new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(chargedAmount);
-    void sendSellerNotification({
-      sellerEmail,
-      orderNumber: order.code,
-      category: 'Orders & Shipping',
-      title: 'Order payment confirmed',
-      message: [
-        { text: 'Your payment for order ' },
-        { text: '#' + order.code, emphasis: 'blue' },
-        { text: ' was successful. ' },
-        { text: formattedAmount, emphasis: 'blue' },
-        { text: ' was deducted from your wallet. The order is now confirmed and awaiting pickup.' },
-      ],
-      tone: 'success',
-      href: '/seller/dashboard?tab=orders',
-      dedupeKey: 'seller-order-payment-confirmed:' + order.id,
+    );
+    setWallet((latestBalanceCents - localPayableCents) / 100);
+    addWalletTransaction({
+      id: localOrders.length === 1 ? 'tx-pay-' + localOrders[0].id : 'tx-pay-local-' + Date.now(),
+      type: 'order_payment',
+      amount: localPayableCents / 100,
+      description: localOrders.length === 1
+        ? 'Order ' + localOrders[0].code + ' payment after commission'
+        : 'One-click payment for ' + localOrders.length + ' orders after commission',
+      status: 'completed',
+      createdAt: now,
     });
+    saveOrders(updated);
+
+    for (const order of localOrders) {
+      const sellerEmail = resolveSellerEmail(order.sellerEmail || order.merchantEmail);
+      const chargedAmount = paymentBreakdowns.get(order.id)!.payable;
+      const formattedAmount = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+      }).format(chargedAmount);
+      void sendSellerNotification({
+        sellerEmail,
+        orderNumber: order.code,
+        category: 'Orders & Shipping',
+        title: 'Order payment confirmed',
+        message: [
+          { text: 'Your payment for order ' },
+          { text: '#' + order.code, emphasis: 'blue' },
+          { text: ' was successful. ' },
+          { text: formattedAmount, emphasis: 'blue' },
+          { text: ' was deducted from your wallet. The order is now confirmed.' },
+        ],
+        tone: 'success',
+        href: '/seller/dashboard?tab=orders',
+        dedupeKey: 'seller-order-payment-confirmed:' + order.id,
+      });
+    }
   }
 
+  const amountBreakdowns = selectedOrders.map((order) => paymentBreakdowns.get(order.id)!);
   return {
     success: true,
     orderCount: selectedOrders.length,
     gross: grossCents / 100,
-    commission: commissionCents / 100,
+    commission: amountBreakdowns.reduce((sum, breakdown) => sum + breakdown.commission, 0),
     payable: payableCents / 100,
   };
 }
 
-export function paySellerOrder(id: string): { success: boolean; error?: string } {
+export function paySellerOrder(id: string): Promise<{ success: boolean; error?: string }> {
   return paySellerOrders([id]);
 }
 
@@ -1430,6 +1560,7 @@ export function advanceOrders(ids: string[]): number {
     if (!ids.includes(o.id)) return o;
     const next = getNextStatus(o.status);
     if (!next || o.status === 'awaiting_payment') return o;
+    if (next === 'delivered' && (o.source === 'consign' || o.consignOrderId)) return o;
     advanced += 1;
     if (next === 'delivered') {
       const breakdown = orderPaymentBreakdown(o.amount);

@@ -11,11 +11,10 @@ import {
   ORDER_STATUS_FLOW,
   ORDER_STATUS_LABEL,
   ORDER_NEXT_ACTION_LABEL,
-  advanceOrders,
   paySellerOrder,
   paySellerOrders,
   amountToCents,
-  orderPaymentBreakdown,
+  sellerOrderPaymentBreakdown,
   getCurrentPackageTier,
   getNextStatus,
   getOrders,
@@ -103,8 +102,10 @@ export function SellerOrdersPanel({
 }: SellerOrdersPanelProps) {
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState('');
+  const [isPayingOrder, setIsPayingOrder] = useState(false);
   const [isPayAllReviewOpen, setIsPayAllReviewOpen] = useState(false);
   const [payAllReviewError, setPayAllReviewError] = useState('');
+  const [isPayingAll, setIsPayingAll] = useState(false);
   const [orders, setOrders] = useState<SellerOrder[]>([]);
   const [orderOutcomes, setOrderOutcomes] = useState<Record<string, 'Refunded' | 'Rejected' | 'Cancelled'>>({});
   const [unreadOrderMessages, setUnreadOrderMessages] = useState<UnreadOrderMessages[]>([]);
@@ -119,8 +120,6 @@ export function SellerOrdersPanel({
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [justConfirmedId, setJustConfirmedId] = useState<string | null>(null);
   const currentPackageTier = getCurrentPackageTier();
-  const commissionRate = currentPackageTier.rebatePercent;
-  const payableRate = 100 - commissionRate;
 
   // Active seller identity
   const activeSellerInfo = useMemo(() => {
@@ -158,7 +157,7 @@ export function SellerOrdersPanel({
     const matchingPayment = getTransactions().find((transaction) =>
       transaction.type === 'order_payment' && transaction.id === `tx-pay-${order.id}`
     );
-    return matchingPayment?.amount ?? orderPaymentBreakdown(order.amount).payable;
+    return matchingPayment?.amount ?? sellerOrderPaymentBreakdown(order).payable;
   };
 
   // Load + live-sync with shared localStorage store & server persistence
@@ -264,7 +263,7 @@ export function SellerOrdersPanel({
     const totals = awaitingPaymentOrders.reduce(
       (sum, order) => ({
         grossCents: sum.grossCents + amountToCents(order.amount),
-        commissionCents: sum.commissionCents + amountToCents(orderPaymentBreakdown(order.amount).commission),
+        commissionCents: sum.commissionCents + amountToCents(sellerOrderPaymentBreakdown(order).commission),
       }),
       { grossCents: 0, commissionCents: 0 }
     );
@@ -274,6 +273,8 @@ export function SellerOrdersPanel({
       payable: (totals.grossCents - totals.commissionCents) / 100,
     };
   }, [awaitingPaymentOrders, currentPackageTier.id]);
+  const paymentRateLabels = Array.from(new Set(awaitingPaymentOrders.map((order) => `${sellerOrderPaymentBreakdown(order).commissionRate}%`)));
+  const commissionRateLabel = paymentRateLabels.length === 1 ? paymentRateLabels[0] : 'per-order rates';
   const walletCents = Math.round(wallet * 100);
   const payAllAmountCents = Math.round(oneClickPaymentTotals.payable * 100);
   const canPayAll = awaitingPaymentOrders.length > 0 && walletCents >= payAllAmountCents;
@@ -435,29 +436,38 @@ export function SellerOrdersPanel({
     setIsPayAllReviewOpen(true);
   };
 
-  const handleConfirmPayAll = () => {
+  const handleConfirmPayAll = async () => {
+    if (isPayingAll) return;
     if (awaitingPaymentOrders.some(isPaymentBlocked)) {
       setPayAllReviewError('A refunded or rejected order cannot be paid. Refresh the order statuses and try again.');
       return;
     }
-    const result = paySellerOrders(awaitingPaymentOrders.map((order) => order.id));
-    if (!result.success) {
-      setPayAllReviewError(result.error || 'Unable to pay all unpaid orders.');
-      return;
+    setIsPayingAll(true);
+    try {
+      const result = await paySellerOrders(awaitingPaymentOrders.map((order) => order.id));
+      if (!result.success) {
+        setPayAllReviewError(result.error || 'Unable to pay all unpaid orders.');
+        return;
+      }
+      setWallet(getWallet());
+      setOrders(getOrders());
+      setSelectedIds([]);
+      setIsPayAllReviewOpen(false);
+      setPayAllReviewError('');
+      notify(
+        `Paid ${result.orderCount} order(s). ${money(result.commission || 0)} commission was retained; ${money(result.payable || 0)} was charged to your wallet.`
+      );
+    } finally {
+      setIsPayingAll(false);
     }
-    setWallet(getWallet());
-    setOrders(getOrders());
-    setSelectedIds([]);
-    setIsPayAllReviewOpen(false);
-    setPayAllReviewError('');
-    notify(
-      `Paid all ${result.orderCount} orders. ${money(result.commission || 0)} commission (${commissionRate}%) was deducted; ${money(result.payable || 0)} was charged to your wallet.`
-    );
   };
 
   const detailsOrder = detailsId ? orders.find((o) => o.id === detailsId) || null : null;
+  const detailsPaymentBreakdown = detailsOrder ? sellerOrderPaymentBreakdown(detailsOrder) : null;
 
   const paymentOrder = orders.find(o => o.id === paymentId);
+  const paymentBreakdown = paymentOrder ? sellerOrderPaymentBreakdown(paymentOrder) : null;
+  const isConsignPayment = paymentOrder?.source === 'consign' || Boolean(paymentOrder?.consignOrderId);
   const paymentOutcome = paymentOrder ? getOrderOutcome(paymentOrder) : undefined;
   const paymentBlocked = paymentOrder ? isPaymentBlocked(paymentOrder) : false;
   return (
@@ -480,7 +490,7 @@ export function SellerOrdersPanel({
                 <p className="text-sm text-gray-500">There are no unpaid orders to review.</p>
               ) : (
                 awaitingPaymentOrders.map((order) => {
-                  const breakdown = orderPaymentBreakdown(order.amount);
+                  const breakdown = sellerOrderPaymentBreakdown(order);
                   const shippingAddress = order.shippingAddress;
                   return (
                     <article key={order.id} className="rounded-xl border border-gray-200 p-4">
@@ -520,7 +530,7 @@ export function SellerOrdersPanel({
 
                       <dl className="mt-3 border-t border-gray-100 pt-3 space-y-1.5 text-xs">
                         <div className="flex justify-between gap-3"><dt className="text-gray-500">Order amount</dt><dd className="font-semibold">{money(order.amount)}</dd></div>
-                        <div className="flex justify-between gap-3"><dt className="text-gray-500">{commissionRate}% commission deducted</dt><dd className="font-semibold text-emerald-700">−{money(breakdown.commission)}</dd></div>
+                        <div className="flex justify-between gap-3"><dt className="text-gray-500">{breakdown.commissionRate}% commission</dt><dd className="font-semibold text-emerald-700">−{money(breakdown.commission)}</dd></div>
                         <div className="flex justify-between gap-3 font-bold"><dt>Amount to pay</dt><dd>{money(breakdown.payable)}</dd></div>
                       </dl>
                     </article>
@@ -533,7 +543,7 @@ export function SellerOrdersPanel({
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-3"><dt className="text-gray-500">Orders included</dt><dd className="font-semibold">{awaitingPaymentOrders.length}</dd></div>
                   <div className="flex justify-between gap-3"><dt className="text-gray-500">Combined order amount</dt><dd className="font-semibold">{money(oneClickPaymentTotals.gross)}</dd></div>
-                  <div className="flex justify-between gap-3"><dt className="text-gray-500">{commissionRate}% commission deducted</dt><dd className="font-semibold text-emerald-700">−{money(oneClickPaymentTotals.commission)}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-gray-500">{commissionRateLabel} commission</dt><dd className="font-semibold text-emerald-700">−{money(oneClickPaymentTotals.commission)}</dd></div>
                   <div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-sm font-bold"><dt>Total to pay</dt><dd>{money(oneClickPaymentTotals.payable)}</dd></div>
                   <div className="flex justify-between gap-3"><dt className="text-gray-500">Wallet balance</dt><dd className="font-semibold">{money(wallet)}</dd></div>
                   {canPayAll && <div className="flex justify-between gap-3"><dt className="text-gray-500">Balance after payment</dt><dd className="font-semibold">{money((walletCents - payAllAmountCents) / 100)}</dd></div>}
@@ -551,8 +561,8 @@ export function SellerOrdersPanel({
 
             <footer className="p-4 border-t border-gray-100 flex justify-end gap-2">
               <button type="button" onClick={() => setIsPayAllReviewOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50">Back</button>
-              <button type="button" onClick={handleConfirmPayAll} disabled={!canPayAll} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
-                Confirm &amp; Pay All ({awaitingPaymentOrders.length})
+              <button type="button" onClick={() => void handleConfirmPayAll()} disabled={!canPayAll || isPayingAll} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
+                {isPayingAll ? 'Processing…' : `Confirm & Pay All (${awaitingPaymentOrders.length})`}
               </button>
             </footer>
           </section>
@@ -566,27 +576,38 @@ export function SellerOrdersPanel({
             <h2 className="text-lg font-bold">Pay for order {paymentOrder.code}</h2>
             <dl className="text-sm space-y-3 my-5">
               <div className="flex justify-between"><dt>Order total</dt><dd>{money(paymentOrder.amount)}</dd></div>
-              <div className="flex justify-between text-emerald-700"><dt>Your commission ({commissionRate}%)</dt><dd>{money(orderPaymentBreakdown(paymentOrder.amount).commission)}</dd></div>
-              <div className="flex justify-between font-bold"><dt>Amount to pay ({payableRate}%)</dt><dd>{money(orderPaymentBreakdown(paymentOrder.amount).payable)}</dd></div>
+              <div className="flex justify-between text-emerald-700"><dt>Your commission ({paymentBreakdown?.commissionRate}%)</dt><dd>{money(paymentBreakdown?.commission || 0)}</dd></div>
+              <div className="flex justify-between font-bold"><dt>Amount to pay ({paymentBreakdown?.payableRate}%)</dt><dd>{money(paymentBreakdown?.payable || 0)}</dd></div>
               <div className="flex justify-between"><dt>Wallet balance</dt><dd>{money(wallet)}</dd></div>
             </dl>
-            <p className="text-xs text-gray-500 mb-4">Your {commissionRate}% commission is excluded from this payment.</p>
+            <p className="text-xs text-gray-500 mb-4">Your {paymentBreakdown?.commissionRate}% commission is excluded from this payment.</p>
             {paymentOutcome && <p role="alert" className="text-sm text-rose-700 bg-rose-50 p-3 rounded-lg mb-4">This order was {paymentOutcome.toLowerCase()} and cannot be paid.{paymentOrder.status !== 'awaiting_payment' && paymentOutcome !== 'Cancelled' ? ` You will receive ${money(getReturnAmount(paymentOrder))} back for this order within 24 hours.` : paymentOrder.status !== 'awaiting_payment' && paymentOutcome === 'Cancelled' ? ' Contact Admin about the payment.' : ''}</p>}
             {paymentOrder.source === 'consign' && !outcomesLoaded && <p role="status" className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg mb-4">Checking this order’s latest refund or rejection status…</p>}
             {paymentOrder.status !== 'awaiting_payment' && <p className="text-sm text-emerald-700 mb-4">This order has already been paid. No further payment is required.</p>}
             {paymentError && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-lg mb-4">{paymentError}</p>}
             <div className="flex gap-2">
               <button className="flex-1 py-2 rounded-lg border" onClick={() => setPaymentId(null)}>Cancel</button>
-              <button disabled={paymentOrder.status !== 'awaiting_payment' || paymentBlocked} className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => {
+              <button disabled={paymentOrder.status !== 'awaiting_payment' || paymentBlocked || isPayingOrder} className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed" onClick={async () => {
+                if (isPayingOrder) return;
                 if (isPaymentBlocked(paymentOrder)) {
                   const outcome = getOrderOutcome(paymentOrder);
                   setPaymentError(outcome ? `This order was ${outcome.toLowerCase()} and cannot be paid.` : 'The latest order status is still being checked.');
                   return;
                 }
-                const result = paySellerOrder(paymentOrder.id);
-                setWallet(getWallet()); setOrders(getOrders());
-                if (!result.success) { setPaymentError(result.error || 'Payment failed.'); return; }
-                setPaymentId(null); notify('Payment successful. Order confirmed.');
+                setIsPayingOrder(true);
+                setPaymentError('');
+                try {
+                  const result = await paySellerOrder(paymentOrder.id);
+                  setWallet(getWallet());
+                  setOrders(getOrders());
+                  if (!result.success) { setPaymentError(result.error || 'Payment failed.'); return; }
+                  setPaymentId(null);
+                  notify(isConsignPayment
+                    ? `Payment successful. Your ${paymentBreakdown?.commissionRate}% commission has been retained. The order is waiting for admin confirmation.`
+                    : 'Payment successful. The order is confirmed.');
+                } finally {
+                  setIsPayingOrder(false);
+                }
               }}>Pay</button>
             </div>
             {paymentError && <button className="mt-3 text-blue-600 text-sm" onClick={() => { setPaymentId(null); setDetailsId(null); onOpenWallet(); }}>Top up wallet →</button>}
@@ -628,14 +649,14 @@ export function SellerOrdersPanel({
               type="button"
               onClick={handlePayAll}
               disabled={awaitingPaymentOrders.length === 0}
-              title={`Pay all ${awaitingPaymentOrders.length} unpaid orders. The ${commissionRate}% commission is deducted from the combined amount.`}
+              title={`Pay all ${awaitingPaymentOrders.length} unpaid orders. Commission is calculated per order at ${commissionRateLabel}.`}
               className="px-3 py-1.5 rounded-lg bg-emerald-600 border border-emerald-700 text-white text-[11px] font-semibold whitespace-nowrap hover:bg-emerald-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               One Click Pay All ({awaitingPaymentOrders.length})
             </button>
             {awaitingPaymentOrders.length > 0 && (
-              <span className="text-[10px] text-gray-500 whitespace-nowrap" title={`Combined amount: ${money(oneClickPaymentTotals.gross)}; ${commissionRate}% commission: ${money(oneClickPaymentTotals.commission)}; wallet charge: ${money(oneClickPaymentTotals.payable)}.`}>
-                Pay {money(oneClickPaymentTotals.payable)} after {commissionRate}% commission
+              <span className="text-[10px] text-gray-500 whitespace-nowrap" title={`Combined amount: ${money(oneClickPaymentTotals.gross)}; ${commissionRateLabel} commission: ${money(oneClickPaymentTotals.commission)}; wallet charge: ${money(oneClickPaymentTotals.payable)}.`}>
+                Pay {money(oneClickPaymentTotals.payable)} after commission
               </span>
             )}
             <div className="relative">
@@ -754,6 +775,9 @@ export function SellerOrdersPanel({
                   const outcome = getOrderOutcome(o);
                   const paymentBlocked = isPaymentBlocked(o);
                   const hasPaidForOrder = o.status !== 'awaiting_payment';
+                  const statusLabel = o.source === 'consign' && o.sellerPaidAt && !o.adminConfirmedAt
+                    ? 'Paid · awaiting admin confirmation'
+                    : ORDER_STATUS_LABEL[o.status];
                   const unreadMessageCount = getUnreadMessageCount(o);
                   return (
                     <tr
@@ -835,14 +859,14 @@ export function SellerOrdersPanel({
                       <td className="py-3 px-2">
                         <p className="font-bold text-gray-900">{money(o.amount)}</p>
                         <p className="text-[10px] font-semibold text-emerald-600 whitespace-nowrap">
-                          + {money(orderPaymentBreakdown(o.amount).commission)} ({commissionRate}%)
+                          + {money(sellerOrderPaymentBreakdown(o).commission)} ({sellerOrderPaymentBreakdown(o).commissionRate}%)
                         </p>
                       </td>
                       <td className="py-3 px-2">
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${outcome === 'Refunded' ? 'bg-blue-50 text-blue-700 border-blue-200' : outcome === 'Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : outcome === 'Cancelled' ? 'bg-gray-100 text-gray-600 border-gray-200' : STATUS_PILL[o.status]}`}
                         >
-                          {outcome || ORDER_STATUS_LABEL[o.status]}
+                          {outcome || statusLabel}
                         </span>
                         {outcome && hasPaidForOrder && outcome !== 'Cancelled' && (
                           <p className="mt-1 max-w-[230px] text-[10px] leading-snug text-blue-700">
@@ -925,7 +949,7 @@ export function SellerOrdersPanel({
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-lg h-full bg-white shadow-2xl overflow-y-auto"
             >
-<div className="p-5 space-y-4 text-xs bg-[#f7f8fa] min-h-full"><button onClick={() => setDetailsId(null)} className="text-gray-500">← Orders</button><header><h2 className="text-xl font-bold">Order</h2><p className="text-[10px] text-gray-500">#{detailsOrder.code}</p><p>Customer: {detailsOrder.shippingAddress?.recipient || detailsOrder.customerName}</p></header>{getOrderOutcome(detailsOrder) && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-800"><p className="font-semibold">{getOrderOutcome(detailsOrder)}</p>{detailsOrder.status !== 'awaiting_payment' && getOrderOutcome(detailsOrder) !== 'Cancelled' ? <p className="mt-1">You will receive {money(getReturnAmount(detailsOrder))} back for this order within 24 hours.</p> : detailsOrder.status !== 'awaiting_payment' ? <p className="mt-1">This order was cancelled. Contact Admin about the payment.</p> : <p className="mt-1">Payment is blocked because this order was {getOrderOutcome(detailsOrder)?.toLowerCase()}.</p>}</div>}<section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3"></h3>{getOrderOutcome(detailsOrder) ? <p className="text-gray-600 mb-3">Payment is closed for this order.</p> : <><p className="text-xl font-bold">{money(orderPaymentBreakdown(detailsOrder.amount).payable)}</p><p className="text-gray-500 mb-3">Amount due · from your wallet balance ({money(wallet)})</p>{detailsOrder.status === 'awaiting_payment' && outcomesLoaded && <button onClick={() => advanceOne(detailsOrder)} className="w-full rounded-lg bg-blue-600 text-white py-2.5 font-semibold">Pay</button>}<button onClick={() => { setDetailsId(null); onOpenWallet(); }} className="w-full mt-2 rounded-lg bg-amber-500 text-white py-2.5 font-semibold">Top up wallet →</button></>}</section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">◉ Customer Details</h3><dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2"><dt className="text-gray-500">Shopper</dt><dd>{detailsOrder.shippingAddress?.recipient || detailsOrder.customerName}</dd><dt className="text-gray-500">Email</dt><dd className="break-all">{maskEmail(detailsOrder.shippingAddress?.email || detailsOrder.customerEmail)}</dd><dt className="text-gray-500">Phone</dt><dd>{maskCustomerPhone(detailsOrder.shippingAddress?.phone)}</dd><dt className="text-gray-500">Street</dt><dd>{maskStreetAddress(detailsOrder.shippingAddress?.street)}</dd><dt className="text-gray-500">Apartment / unit</dt><dd>{detailsOrder.shippingAddress?.apt || '—'}</dd><dt className="text-gray-500">City</dt><dd>{detailsOrder.shippingAddress?.city || detailsOrder.customerLocation || '—'}</dd><dt className="text-gray-500">State</dt><dd>{detailsOrder.shippingAddress?.state || '—'}</dd><dt className="text-gray-500">Postal code</dt><dd>{detailsOrder.shippingAddress?.postalCode || '—'}</dd><dt className="text-gray-500">Country</dt><dd>{detailsOrder.shippingAddress?.country || '—'}</dd><dt className="text-gray-500">Country code</dt><dd>{detailsOrder.shippingAddress?.countryCode || '—'}</dd></dl><p className="text-[10px] text-gray-500 mt-4">Customer emails keep the three-character mask; four phone digits and up to five street-address words are masked for privacy.</p></section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">◷ Fulfilment Track</h3><ol className="space-y-3">{FULFILMENT_TRACK_STAGES.map((stage, idx) => {
+<div className="p-5 space-y-4 text-xs bg-[#f7f8fa] min-h-full"><button onClick={() => setDetailsId(null)} className="text-gray-500">← Orders</button><header><h2 className="text-xl font-bold">Order</h2><p className="text-[10px] text-gray-500">#{detailsOrder.code}</p><p>Customer: {detailsOrder.shippingAddress?.recipient || detailsOrder.customerName}</p></header>{getOrderOutcome(detailsOrder) && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-800"><p className="font-semibold">{getOrderOutcome(detailsOrder)}</p>{detailsOrder.status !== 'awaiting_payment' && getOrderOutcome(detailsOrder) !== 'Cancelled' ? <p className="mt-1">You will receive {money(getReturnAmount(detailsOrder))} back for this order within 24 hours.</p> : detailsOrder.status !== 'awaiting_payment' ? <p className="mt-1">This order was cancelled. Contact Admin about the payment.</p> : <p className="mt-1">Payment is blocked because this order was {getOrderOutcome(detailsOrder)?.toLowerCase()}.</p>}</div>}<section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3"></h3>{getOrderOutcome(detailsOrder) ? <p className="text-gray-600 mb-3">Payment is closed for this order.</p> : <><p className="text-xl font-bold">{money(detailsPaymentBreakdown?.payable || 0)}</p><p className="text-gray-500 mb-3">Amount due · from your wallet balance ({money(wallet)})</p>{detailsOrder.status === 'awaiting_payment' && outcomesLoaded && <button onClick={() => advanceOne(detailsOrder)} className="w-full rounded-lg bg-blue-600 text-white py-2.5 font-semibold">Pay</button>}<button onClick={() => { setDetailsId(null); onOpenWallet(); }} className="w-full mt-2 rounded-lg bg-amber-500 text-white py-2.5 font-semibold">Top up wallet →</button></>}</section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">◉ Customer Details</h3><dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2"><dt className="text-gray-500">Shopper</dt><dd>{detailsOrder.shippingAddress?.recipient || detailsOrder.customerName}</dd><dt className="text-gray-500">Email</dt><dd className="break-all">{maskEmail(detailsOrder.shippingAddress?.email || detailsOrder.customerEmail)}</dd><dt className="text-gray-500">Phone</dt><dd>{maskCustomerPhone(detailsOrder.shippingAddress?.phone)}</dd><dt className="text-gray-500">Street</dt><dd>{maskStreetAddress(detailsOrder.shippingAddress?.street)}</dd><dt className="text-gray-500">Apartment / unit</dt><dd>{detailsOrder.shippingAddress?.apt || '—'}</dd><dt className="text-gray-500">City</dt><dd>{detailsOrder.shippingAddress?.city || detailsOrder.customerLocation || '—'}</dd><dt className="text-gray-500">State</dt><dd>{detailsOrder.shippingAddress?.state || '—'}</dd><dt className="text-gray-500">Postal code</dt><dd>{detailsOrder.shippingAddress?.postalCode || '—'}</dd><dt className="text-gray-500">Country</dt><dd>{detailsOrder.shippingAddress?.country || '—'}</dd><dt className="text-gray-500">Country code</dt><dd>{detailsOrder.shippingAddress?.countryCode || '—'}</dd></dl><p className="text-[10px] text-gray-500 mt-4">Customer emails keep the three-character mask; four phone digits and up to five street-address words are masked for privacy.</p></section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">◷ Fulfilment Track</h3><ol className="space-y-3">{FULFILMENT_TRACK_STAGES.map((stage, idx) => {
   const currentIndex = FULFILMENT_CURRENT_STAGE[detailsOrder.status];
   const complete = idx < currentIndex;
   const current = idx === currentIndex;
@@ -947,7 +971,7 @@ export function SellerOrdersPanel({
 <p className="font-semibold text-blue-800">Congratulations! Your order has been safely delivered to the customer.</p>
 <p className="mt-1 text-sm text-blue-700">Thank you for choosing Galleria Enterprises, Inc.</p>
 </section>
-)}<section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">Items</h3><ul className="space-y-3">{detailsOrder.products.map(p => <li key={p.id} className="flex items-center gap-3">{p.image ? <img src={p.image} alt={p.title} className="w-10 h-10 object-cover rounded" /> : <Package className="w-10 h-10 text-gray-300" />}<div className="flex-1 min-w-0"><p className="text-emerald-700">{p.title}</p><p className="text-[10px] text-gray-400">Qty {p.quantity} · {money(p.price)} / unit</p></div><span>{money(p.price * p.quantity)}</span></li>)}</ul></section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">▤ Financial Summary</h3><dl className="space-y-2"><div className="flex justify-between"><dt className="text-gray-500">Subtotal</dt><dd>{money(detailsOrder.products.reduce((sum, p) => sum + p.price * p.quantity, 0))}</dd></div><div className="flex justify-between"><dt className="text-gray-500">Your commission ({commissionRate}%)</dt><dd className="text-emerald-700">{money(orderPaymentBreakdown(detailsOrder.amount).commission)}</dd></div><div className="flex justify-between"><dt className="text-gray-500">Payment method</dt><dd>{detailsOrder.paymentMethod || 'Wallet'}</dd></div><div className="flex justify-between rounded-lg bg-[#101827] text-white p-3"><dt>Amount you pay ({payableRate}%)</dt><dd className="font-bold">{money(orderPaymentBreakdown(detailsOrder.amount).payable)}</dd></div></dl></section></div>          </aside>
+)}<section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">Items</h3><ul className="space-y-3">{detailsOrder.products.map(p => <li key={p.id} className="flex items-center gap-3">{p.image ? <img src={p.image} alt={p.title} className="w-10 h-10 object-cover rounded" /> : <Package className="w-10 h-10 text-gray-300" />}<div className="flex-1 min-w-0"><p className="text-emerald-700">{p.title}</p><p className="text-[10px] text-gray-400">Qty {p.quantity} · {money(p.price)} / unit</p></div><span>{money(p.price * p.quantity)}</span></li>)}</ul></section><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="font-semibold mb-3">▤ Financial Summary</h3><dl className="space-y-2"><div className="flex justify-between"><dt className="text-gray-500">Subtotal</dt><dd>{money(detailsOrder.products.reduce((sum, p) => sum + p.price * p.quantity, 0))}</dd></div><div className="flex justify-between"><dt className="text-gray-500">Your commission ({detailsPaymentBreakdown?.commissionRate}%)</dt><dd className="text-emerald-700">{money(detailsPaymentBreakdown?.commission || 0)}</dd></div><div className="flex justify-between"><dt className="text-gray-500">Payment method</dt><dd>{detailsOrder.paymentMethod || 'Wallet'}</dd></div><div className="flex justify-between rounded-lg bg-[#101827] text-white p-3"><dt>Amount you pay ({detailsPaymentBreakdown?.payableRate}%)</dt><dd className="font-bold">{money(detailsPaymentBreakdown?.payable || 0)}</dd></div></dl></section></div>          </aside>
         </div>,
         document.body
       )}

@@ -1,44 +1,18 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import { randomUUID } from 'crypto';
 import { createSellerNotificationServer } from '@/lib/sellerNotificationsServer';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
+import {
+  addSellerWalletAdjustment,
+  findSellerWalletAdjustment,
+  readSellerWalletAdjustments,
+  type SellerWalletAdjustmentEvent,
+} from '@/lib/sellerWalletAdjustmentsServer';
 
 export const dynamic = 'force-dynamic';
 
-interface WalletAdjustment {
-  id: string;
-  sellerEmail: string;
-  accountType: 'wallet' | 'guarantee';
-  amount: number;
-  reason: string;
-  createdAt: string;
-  dedupeKey?: string;
-}
-
-const FILE = path.join(process.cwd(), 'src', 'data', 'seller_wallet_adjustments.json');
-
 function getSellerSessionEmail(request: Request): string {
   return getRequestSellerEmail(request);
-}
-
-function read(): WalletAdjustment[] {
-  try {
-    if (!fs.existsSync(FILE)) return [];
-    const data = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-function write(rows: WalletAdjustment[]): void {
-  const dir = path.dirname(FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(`${FILE}.tmp`, JSON.stringify(rows, null, 2), 'utf8');
-  fs.renameSync(`${FILE}.tmp`, FILE);
 }
 
 const money = (amount: number) => `$${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,7 +25,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'You can only view adjustments for your seller account.' }, { status: 403 });
   }
   const email = sessionEmail;
-  return NextResponse.json({ adjustments: read().filter((row) => row.sellerEmail === email) });
+  return NextResponse.json({ adjustments: readSellerWalletAdjustments(email) });
 }
 
 export async function POST(request: Request) {
@@ -62,7 +36,7 @@ export async function POST(request: Request) {
     const accountType = body.accountType === 'guarantee' ? 'guarantee' : 'wallet';
     const amount = Math.round(Number(body.amount) * 100) / 100;
     const reason = String(body.reason || (body.eventType === 'commission-payout' ? 'Commission payout' : 'Admin adjustment')).trim().slice(0, 500);
-    const eventType = body.eventType === 'commission-payout'
+    const eventType: SellerWalletAdjustmentEvent = body.eventType === 'commission-payout'
       ? 'commission-payout'
       : body.eventType === 'withdrawal-refund'
         ? 'withdrawal-refund'
@@ -73,23 +47,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'A seller and a valid non-zero adjustment amount are required.' }, { status: 400 });
     }
 
-    const rows = read();
     if (dedupeKey) {
-      const existing = rows.find((row) => row.sellerEmail === sellerEmail && row.dedupeKey === dedupeKey);
+      const existing = findSellerWalletAdjustment(sellerEmail, dedupeKey);
       if (existing) return NextResponse.json({ success: true, adjustment: existing, duplicate: true });
     }
 
-    const adjustment: WalletAdjustment = {
-      id: randomUUID(),
+    const { adjustment } = addSellerWalletAdjustment({
       sellerEmail,
       accountType,
-      amount,
+      amountCents: Math.round(amount * 100),
       reason,
-      createdAt: new Date().toISOString(),
-      ...(dedupeKey ? { dedupeKey } : {}),
-    };
-    rows.unshift(adjustment);
-    write(rows);
+      dedupeKey: dedupeKey || `wallet-adjustment:${Date.now()}`,
+      eventType,
+    });
 
     const isCommissionPayout = eventType === 'commission-payout';
     const isWithdrawalRefund = eventType === 'withdrawal-refund';

@@ -4,6 +4,7 @@ let pool: Pool | null = null;
 let isInitialized = false;
 let dbAvailable: boolean | null = null;
 let lastAttemptTime = 0;
+let initializationPromise: Promise<boolean> | null = null;
 const RETRY_INTERVAL_MS = 15000; // Check reconnection at most once every 15s
 
 export function getPool(): Pool {
@@ -39,12 +40,27 @@ export async function initDb(): Promise<boolean> {
     return true;
   }
 
+  // Several API requests can start together when a dashboard first loads.
+  // Share one schema initialization instead of running the full DDL batch once
+  // per request and making the cold start wait on competing migrations.
+  if (initializationPromise) return initializationPromise;
+
   const now = Date.now();
   if (dbAvailable === false && now - lastAttemptTime < RETRY_INTERVAL_MS) {
     return false;
   }
 
   lastAttemptTime = now;
+  const attempt = initializeDb();
+  initializationPromise = attempt;
+  try {
+    return await attempt;
+  } finally {
+    if (initializationPromise === attempt) initializationPromise = null;
+  }
+}
+
+async function initializeDb(): Promise<boolean> {
   const p = getPool();
   try {
     const client = await p.connect();

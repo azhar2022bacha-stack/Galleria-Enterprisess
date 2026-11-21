@@ -320,7 +320,7 @@ export default function AdminPage() {
       }
     };
     void updateCounts();
-    const intervalId = window.setInterval(() => void updateCounts(), 5000);
+    const intervalId = window.setInterval(() => void updateCounts(), 30_000);
     window.addEventListener('storage', updateCounts);
     window.addEventListener('focus', updateCounts);
     window.addEventListener('galleria:admin-todo-changed', updateCounts);
@@ -387,7 +387,7 @@ export default function AdminPage() {
     };
 
     void refreshSellerConfirmations();
-    const intervalId = window.setInterval(() => void refreshSellerConfirmations(), 3000);
+    const intervalId = window.setInterval(() => void refreshSellerConfirmations(), 30_000);
     window.addEventListener('storage', refreshSellerConfirmations);
     window.addEventListener('focus', refreshSellerConfirmations);
     window.addEventListener('galleria:seller-orders-changed', refreshSellerConfirmations);

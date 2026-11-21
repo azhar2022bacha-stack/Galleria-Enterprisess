@@ -218,7 +218,7 @@ export function SellerOrdersPanel({
       syncConsignOrdersFromServer(activeSellerInfo.email || undefined).then(refresh);
     };
     syncNow();
-    const pollId = setInterval(syncNow, 3500);
+    const pollId = setInterval(syncNow, 15_000);
     window.addEventListener('focus', syncNow);
     const unsub = subscribeToOrders(refresh);
     return () => {

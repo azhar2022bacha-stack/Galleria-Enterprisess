@@ -89,7 +89,7 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
       setSellerEmail(email);
       await loadNotifications(email);
       if (!active) return;
-      notificationTimer = setInterval(() => { void loadNotifications(email); }, 3500);
+      notificationTimer = setInterval(() => { void loadNotifications(email); }, 15_000);
     };
 
     void initialize();

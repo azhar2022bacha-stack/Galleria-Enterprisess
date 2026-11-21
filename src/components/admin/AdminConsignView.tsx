@@ -300,7 +300,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     };
 
     fetchMerchants();
-    const interval = setInterval(fetchMerchants, 5000);
+    const interval = setInterval(fetchMerchants, 15_000);
     window.addEventListener('focus', fetchMerchants);
     return () => {
       clearInterval(interval);
@@ -1153,7 +1153,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     syncConsignOrdersFromServer().then(refreshFromLocal);
     const pollId = setInterval(() => {
       syncConsignOrdersFromServer().then(refreshFromLocal);
-    }, 4000);
+    }, 15_000);
     const onFocus = () => syncConsignOrdersFromServer().then(refreshFromLocal);
     window.addEventListener('focus', onFocus);
 
@@ -1185,7 +1185,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
       }
     };
     void refreshRejectedOrders();
-    const pollId = setInterval(() => void refreshRejectedOrders(), 4000);
+    const pollId = setInterval(() => void refreshRejectedOrders(), 15_000);
     window.addEventListener('focus', refreshRejectedOrders);
     return () => {
       active = false;

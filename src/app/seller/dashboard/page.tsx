@@ -308,7 +308,7 @@ export default function SellerDashboardPage() {
   // Navigation State - Strictly matching the 16 items
   const [activeNav, setActiveNav] = useState<string>('dashboard');
   const [navigationReady, setNavigationReady] = useState(false);
-  useEffect(()=>{let running=false;const sync=async()=>{if(running)return;running=true;try{await syncApprovedRecharges();}catch{}finally{running=false;}};sync();const timer=setInterval(sync,3000);window.addEventListener('focus',sync);return()=>{clearInterval(timer);window.removeEventListener('focus',sync);};},[]);
+  useEffect(()=>{let running=false;const sync=async()=>{if(running||document.visibilityState==='hidden')return;running=true;try{await syncApprovedRecharges();}catch{}finally{running=false;}};sync();const timer=setInterval(sync,30_000);window.addEventListener('focus',sync);document.addEventListener('visibilitychange',sync);return()=>{clearInterval(timer);window.removeEventListener('focus',sync);document.removeEventListener('visibilitychange',sync);};},[]);
   const [timeRange, setTimeRange] = useState<'today' | 'this_week' | 'this_month' | 'custom'>('this_week');
 
   useEffect(() => {
@@ -362,7 +362,9 @@ export default function SellerDashboardPage() {
 
   useEffect(() => {
     let active = true;
+    let requestInFlight = false;
     const refreshUnreadCount = async () => {
+      if (!active || requestInFlight || document.visibilityState === 'hidden') return;
       let email = currentEmailRef.current;
       if (!email) {
         try {
@@ -370,6 +372,7 @@ export default function SellerDashboardPage() {
         } catch {}
       }
       if (!email) return;
+      requestInFlight = true;
       try {
         const response = await fetch(`/api/seller/notifications?email=${encodeURIComponent(email)}`, { cache: 'no-store' });
         if (!response.ok) return;
@@ -394,15 +397,19 @@ export default function SellerDashboardPage() {
         seenSellerNotificationIdsRef.current = new Set(
           notifications.map((notification: any) => notification.id).filter(Boolean)
         );
-      } catch {}
+      } catch {} finally {
+        requestInFlight = false;
+      }
     };
     void refreshUnreadCount();
-    const timer = setInterval(() => { void refreshUnreadCount(); }, 3500);
+    const timer = setInterval(() => { void refreshUnreadCount(); }, 30_000);
     window.addEventListener('focus', refreshUnreadCount);
+    document.addEventListener('visibilitychange', refreshUnreadCount);
     return () => {
       active = false;
       clearInterval(timer);
       window.removeEventListener('focus', refreshUnreadCount);
+      document.removeEventListener('visibilitychange', refreshUnreadCount);
     };
   }, []);
 
@@ -412,6 +419,7 @@ export default function SellerDashboardPage() {
 
   useEffect(() => {
     let activeEmail = '';
+    let requestInFlight = false;
     // 1. Immediate local load from localStorage / settings
     if (typeof window !== 'undefined') {
       try {
@@ -452,6 +460,8 @@ export default function SellerDashboardPage() {
 
     // 2. Fetch authenticated seller from database & poll for admin approval
     const fetchSellerData = async () => {
+      if (requestInFlight || document.visibilityState === 'hidden') return;
+      requestInFlight = true;
       try {
         const res = await fetch('/api/seller/current', { cache: 'no-store' });
         if (res.ok) {
@@ -518,12 +528,15 @@ export default function SellerDashboardPage() {
             }
           }
         }
-      } catch (err) {}
+      } catch (err) {} finally {
+        requestInFlight = false;
+      }
     };
 
     fetchSellerData();
-    const pollInterval = setInterval(fetchSellerData, 3500);
+    const pollInterval = setInterval(fetchSellerData, 30_000);
     window.addEventListener('focus', fetchSellerData);
+    document.addEventListener('visibilitychange', fetchSellerData);
 
     const unsub = subscribeToOrders(() => {
       if (hasSavedShopSettings()) {
@@ -552,6 +565,7 @@ export default function SellerDashboardPage() {
   return () => {
       clearInterval(pollInterval);
       window.removeEventListener('focus', fetchSellerData);
+      document.removeEventListener('visibilitychange', fetchSellerData);
       unsub();
     };
   }, []);
@@ -574,13 +588,20 @@ export default function SellerDashboardPage() {
     if (emailForSync) {
       syncConsignOrdersFromServer(emailForSync);
     }
-    const poll = setInterval(() => {
+    let syncInFlight = false;
+    const syncOrders = () => {
+      if (syncInFlight || document.visibilityState === 'hidden') return;
       const e = currentEmailRef.current || merchantProfile.email || '';
-      if (e) syncConsignOrdersFromServer(e);
-    }, 3500);
+      if (!e) return;
+      syncInFlight = true;
+      void syncConsignOrdersFromServer(e).finally(() => { syncInFlight = false; });
+    };
+    const poll = setInterval(syncOrders, 30_000);
+    window.addEventListener('focus', syncOrders);
     const unsub = subscribeToOrders(refresh);
     return () => {
       clearInterval(poll);
+      window.removeEventListener('focus', syncOrders);
       unsub();
     };
   }, [merchantProfile.email]);

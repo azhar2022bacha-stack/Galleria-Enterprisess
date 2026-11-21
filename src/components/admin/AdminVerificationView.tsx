@@ -88,10 +88,10 @@ export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
 
     fetchSubmissions(true);
 
-    // Auto-refresh interval (every 7 seconds) so newly submitted documents appear automatically
+    // Refresh periodically while this view is open; focus refreshes immediately.
     const interval = setInterval(() => {
       fetchSubmissions(true);
-    }, 7000);
+    }, 15_000);
 
     return () => clearInterval(interval);
   }, []);

@@ -30,7 +30,7 @@ export function useDisputeProductUnread(role: 'admin' | 'seller'): DisputeProduc
     };
 
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
+    const timer = window.setInterval(() => void refresh(), 15_000);
     window.addEventListener('focus', refresh);
     return () => {
       active = false;
@@ -74,7 +74,7 @@ export function DisputeUnreadBadge({ role }: { role: 'admin' | 'seller' }) {
     };
 
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
+    const timer = window.setInterval(() => void refresh(), 15_000);
     window.addEventListener('focus', refresh);
     return () => {
       active = false;

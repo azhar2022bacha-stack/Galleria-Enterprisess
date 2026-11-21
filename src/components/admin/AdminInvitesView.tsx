@@ -41,9 +41,10 @@ export function AdminInvitesView({ notify }: AdminInvitesViewProps) {
 
   useEffect(() => {
     fetchCodes();
-    // Poll every 3 seconds so registrations show up immediately
-    const interval = setInterval(fetchCodes, 3000);
-    return () => clearInterval(interval);
+    // Poll periodically while open; manual actions and focus still refresh immediately.
+    const interval = setInterval(fetchCodes, 15_000);
+    window.addEventListener('focus', fetchCodes);
+    return () => { clearInterval(interval); window.removeEventListener('focus', fetchCodes); };
   }, []);
 
   const handleGenerate = async (e: React.FormEvent) => {

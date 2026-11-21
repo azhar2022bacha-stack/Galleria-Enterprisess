@@ -20,7 +20,15 @@ export async function GET(req: Request) {
   if (!normalizedSessionEmail) return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
   if (normalizedSessionEmail !== email.trim().toLowerCase()) return NextResponse.json({ error: 'You can only access your own support conversation.' }, { status: 403 });
  }
- const chats = read(); return NextResponse.json({ chats: email ? chats.filter(c => c.email === email) : chats, profiles: profiles() });
+ const chats = read();
+ const scopedChats = email ? chats.filter(c => c.email === email.trim().toLowerCase()) : chats;
+ if (q.get('summary') === '1') {
+  const viewerRole = admin ? 'admin' : 'seller';
+  const incoming = scopedChats.flatMap((chat) => (Array.isArray(chat.messages) ? chat.messages : [])
+   .filter((message: any) => message.role !== viewerRole && !message.deleted && !message.hiddenFor?.includes(viewerRole)));
+  return NextResponse.json({ unreadCount: incoming.filter((message: any) => !message.read).length, incomingIds: incoming.map((message: any) => message.id).filter(Boolean) });
+ }
+ return NextResponse.json({ chats: scopedChats, profiles: profiles() });
 }
 export async function POST(req: Request) {
  try {
@@ -39,7 +47,11 @@ export async function POST(req: Request) {
  }
  const chats = read(); let chat = chats.find(c => c.email === email);
  if (!chat) { chat = { id: randomUUID(), email, name: String(b.name || email).slice(0,120), messages: [], status: 'open' }; chats.push(chat); }
- if (b.action === 'presence') {
+ if (b.action === 'heartbeat') {
+ chat.presence = chat.presence || {};
+ chat.presence[b.role] = Date.now();
+ chat.messages.forEach((m: any) => { if (m.role !== b.role) { m.delivered = true; m.read = true; } });
+ } else if (b.action === 'presence') {
  chat.presence = chat.presence || {};
  chat.presence[b.role] = Date.now();
  chat.messages.forEach((m: any) => { if (m.role !== b.role) m.delivered = true; });

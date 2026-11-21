@@ -78,7 +78,7 @@ export function SellerDisputesPanel() {
   useEffect(() => {
     void loadDisputes();
     const refresh = () => { setRefreshing(true); void loadDisputes(); };
-    const timer = window.setInterval(refresh, 5000);
+    const timer = window.setInterval(refresh, 15_000);
     window.addEventListener('focus', refresh);
     return () => {
       window.clearInterval(timer);

@@ -197,7 +197,7 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
       }
     };
     void refresh();
-    const intervalId = window.setInterval(refresh, 5000);
+    const intervalId = window.setInterval(refresh, 15_000);
     window.addEventListener('focus', refresh);
     return () => {
       active = false;

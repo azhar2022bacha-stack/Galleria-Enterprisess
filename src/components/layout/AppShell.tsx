@@ -9,6 +9,9 @@ import Toast from '@/components/common/Toast';
 import { CompareTray } from '@/components/compare/CompareTray';
 import { WhatsAppShortcut } from '@/components/layout/WhatsAppShortcut';
 import { StorefrontCatalogProvider } from '@/context/StorefrontCatalogContext';
+import { CartProvider } from '@/context/CartContext';
+import { WishlistProvider } from '@/context/WishlistContext';
+import { CompareProvider } from '@/context/CompareContext';
 import { withStorefrontCompanyInfo } from '@/lib/storefrontCompany';
 import type { WebsiteInfo } from '@/lib/websiteInfo';
 
@@ -47,20 +50,25 @@ export default function AppShell({ children, initialWebsiteInfo }: { children: R
     return (
       <main className="min-h-screen">
         {children}
-        <Toast />
       </main>
     );
   }
 
   return (
-    <StorefrontCatalogProvider>
-      <AnnouncementBar websiteInfo={websiteInfo} />
-      <Navbar websiteInfo={websiteInfo} />
-      <main className="flex-1">{children}</main>
-      <Footer websiteInfo={websiteInfo} />
-      <WhatsAppShortcut number={websiteInfo.whatsappNumber} />
-      <CompareTray />
-      <Toast />
-    </StorefrontCatalogProvider>
+    <CartProvider>
+      <WishlistProvider>
+        <CompareProvider>
+          <StorefrontCatalogProvider>
+            <AnnouncementBar websiteInfo={websiteInfo} />
+            <Navbar websiteInfo={websiteInfo} />
+            <main className="flex-1">{children}</main>
+            <Footer websiteInfo={websiteInfo} />
+            <WhatsAppShortcut number={websiteInfo.whatsappNumber} />
+            <CompareTray />
+            <Toast />
+          </StorefrontCatalogProvider>
+        </CompareProvider>
+      </WishlistProvider>
+    </CartProvider>
   );
 }

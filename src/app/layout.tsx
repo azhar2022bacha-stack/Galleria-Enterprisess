@@ -1,9 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import AppShell from '@/components/layout/AppShell';
-import { CartProvider } from '@/context/CartContext';
-import { WishlistProvider } from '@/context/WishlistContext';
-import { CompareProvider } from '@/context/CompareContext';
 import type { CSSProperties } from 'react';
 import { getStorefrontWebsiteInfo } from '@/lib/getStorefrontWebsiteInfo';
 
@@ -35,13 +32,7 @@ export default async function RootLayout({
   return (
     <html lang="en" style={brandVariables}>
       <body className="min-h-screen flex flex-col bg-[#fbfaf7] text-[#17283e] font-sans">
-        <CartProvider>
-          <WishlistProvider>
-            <CompareProvider>
-              <AppShell initialWebsiteInfo={websiteInfo}>{children}</AppShell>
-            </CompareProvider>
-          </WishlistProvider>
-        </CartProvider>
+        <AppShell initialWebsiteInfo={websiteInfo}>{children}</AppShell>
       </body>
     </html>
   );

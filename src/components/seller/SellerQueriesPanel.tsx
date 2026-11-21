@@ -52,7 +52,7 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
     const refreshQueries = () => void refresh();
     void refresh();
     const unsubscribe = subscribeToOrders(refreshQueries);
-    const intervalId = window.setInterval(refreshQueries, 5000);
+    const intervalId = window.setInterval(refreshQueries, 15_000);
     window.addEventListener('focus', refreshQueries);
     return () => {
       active = false;

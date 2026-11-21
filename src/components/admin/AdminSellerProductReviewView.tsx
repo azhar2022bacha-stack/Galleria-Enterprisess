@@ -87,7 +87,7 @@ export function AdminSellerProductReviewView({ notify }: AdminSellerProductRevie
       } catch {}
     };
     void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 5000);
+    const intervalId = window.setInterval(() => void refresh(), 15_000);
     window.addEventListener('storage', refresh);
     window.addEventListener('galleria:seller-orders-changed', refresh);
     window.addEventListener('galleria:admin-todo-changed', refresh);

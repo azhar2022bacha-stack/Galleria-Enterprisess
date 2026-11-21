@@ -157,7 +157,7 @@ export function AdminOrdersView({
     handleSync();
     const unsub = subscribeToOrders(handleSync);
     window.addEventListener('buyxoco_admin_data_changed', handleSync);
-    const pollId = setInterval(handleSync, 4000);
+    const pollId = setInterval(handleSync, 15_000);
     return () => {
       active = false;
       unsub();

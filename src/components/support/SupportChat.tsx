@@ -45,12 +45,25 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  const [recording,setRecording] = useState(false); const recorder = useRef<MediaRecorder | null>(null); const stream = useRef<MediaStream | null>(null);
  const input = useRef<HTMLInputElement>(null); const bottom = useRef<HTMLDivElement>(null); const role = admin ? 'admin' : 'seller';
  useEffect(() => { try { const user = JSON.parse(localStorage.getItem('galleria_active_seller') || '{}'); setIdentity({email: user.email || '', name: user.shopName || user.fullName || user.email || ''}); if (!admin) setSelected(user.email || ''); else setSelected(sessionStorage.getItem('admin_support_selected_chat') || ''); } catch {} return () => { recorder.current?.stop(); stream.current?.getTracks().forEach(t=>t.stop()); }; },[admin]);
- async function refresh() { if (!admin && !identity.email) return; try { const res = await fetch('/api/support' + (admin ? '' : '?email='+encodeURIComponent(identity.email)), {cache:'no-store'}); if(!res.ok) throw new Error(); const data=await res.json(); setChats(data.chats);setProfiles(data.profiles||{}); } catch { setError('Unable to connect. Your draft is preserved.'); } }
- useEffect(() => { refresh(); const timer=setInterval(refresh,2500); return()=>clearInterval(timer); },[admin,identity.email]);
+ async function refresh() { if (!admin && !identity.email) return; try { const res = await fetch('/api/support' + (admin ? '' : '?email='+encodeURIComponent(identity.email)), {cache:'no-store'}); if(!res.ok) throw new Error(); const data=await res.json(); setChats(Array.isArray(data.chats) ? data.chats : []);setProfiles(data.profiles||{}); } catch { setError('Unable to connect. Your draft is preserved.'); } }
+ useEffect(() => {
+   let active = true;
+   let requestInFlight = false;
+   const refreshWhenReady = async () => {
+     if (!active || requestInFlight || document.visibilityState === 'hidden') return;
+     requestInFlight = true;
+     try { await refresh(); } finally { requestInFlight = false; }
+   };
+   void refreshWhenReady();
+   const timer = setInterval(() => void refreshWhenReady(), 15_000);
+   window.addEventListener('focus', refreshWhenReady);
+   document.addEventListener('visibilitychange', refreshWhenReady);
+   return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refreshWhenReady); document.removeEventListener('visibilitychange', refreshWhenReady); };
+ },[admin,identity.email]);
  useEffect(()=>{if(!voiceMenu)return;const close=(e:MouseEvent)=>{if(!(e.target as HTMLElement).closest('[data-attachment-menu]'))setVoiceMenu(null);};const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setVoiceMenu(null);};document.addEventListener('click',close);document.addEventListener('keydown',key);return()=>{document.removeEventListener('click',close);document.removeEventListener('keydown',key);};},[voiceMenu]);
  const chat=chats.find(c=>c.email===selected); const messages=chat?.messages || [];
  const lastSellerSeen = chat?.presence?.seller || 0;
- const sellerOnline = lastSellerSeen > 0 && Date.now()-lastSellerSeen < 12000;
+ const sellerOnline = lastSellerSeen > 0 && Date.now()-lastSellerSeen < 45000;
  function lastSeenLabel(timestamp:number) {
  if (!timestamp) return 'Offline · Last seen unavailable';
  const minutes=Math.floor((Date.now()-timestamp)/60000);
@@ -87,11 +100,23 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  },[admin,identity.email,selected]);
  useEffect(()=>{
  if (!selected) return;
- const heartbeat = () => {
-   if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
-   action('presence').then(()=>action('read')).catch(()=>{});
+ let requestInFlight = false;
+ const heartbeat = async () => {
+   if (requestInFlight || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+   requestInFlight = true;
+   try {
+     await fetch('/api/support', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ action: 'heartbeat', email: selected, name: identity.name, role }),
+     });
+   } catch {
+     // The next heartbeat or focus refresh will retry.
+   } finally {
+     requestInFlight = false;
+   }
  };
- heartbeat(); const timer = setInterval(heartbeat, 4000);
+ void heartbeat(); const timer = setInterval(() => void heartbeat(), 15_000);
  window.addEventListener('focus', heartbeat); document.addEventListener('visibilitychange', heartbeat);
  return () => { clearInterval(timer); window.removeEventListener('focus', heartbeat); document.removeEventListener('visibilitychange', heartbeat); };
  },[selected,role]);

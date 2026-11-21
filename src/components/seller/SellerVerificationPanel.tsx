@@ -208,8 +208,8 @@ export function SellerVerificationPanel({ notify }: SellerVerificationPanelProps
 
     fetchExistingKyc();
 
-    // Auto-polling interval (every 3.5 seconds) so admin approval updates live
-    const interval = setInterval(fetchExistingKyc, 3500);
+    // Refresh periodically while this panel is open; focus refreshes immediately.
+    const interval = setInterval(fetchExistingKyc, 15_000);
     window.addEventListener('focus', fetchExistingKyc);
 
     const unsub = subscribeToOrders(fetchExistingKyc);

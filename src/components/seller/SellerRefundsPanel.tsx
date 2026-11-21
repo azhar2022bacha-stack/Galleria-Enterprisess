@@ -54,7 +54,7 @@ export function SellerRefundsPanel({ notify }: SellerRefundsPanelProps) {
     const refreshLocalRefunds = () => void refresh();
     void refresh();
     const unsubscribe = subscribeToOrders(refreshLocalRefunds);
-    const intervalId = window.setInterval(refreshLocalRefunds, 5000);
+    const intervalId = window.setInterval(refreshLocalRefunds, 15_000);
     window.addEventListener('focus', refreshLocalRefunds);
     return () => {
       active = false;

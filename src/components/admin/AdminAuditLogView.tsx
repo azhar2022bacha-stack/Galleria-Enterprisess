@@ -141,7 +141,7 @@ export function AdminAuditLogView({ notify }: AdminAuditLogViewProps) {
     };
     inFlight = true;
     void loadLogs(false, true).finally(() => { inFlight = false; });
-    const interval = window.setInterval(() => void poll(), 2000);
+    const interval = window.setInterval(() => void poll(), 15_000);
     document.addEventListener('visibilitychange', poll);
     window.addEventListener('focus', poll);
     return () => {

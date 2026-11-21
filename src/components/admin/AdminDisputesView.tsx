@@ -174,7 +174,7 @@ export function AdminDisputesView({ notify }: { notify?: (message: string) => vo
         if (active) setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh disputes.');
       }
     };
-    const intervalId = window.setInterval(() => void refreshSharedDisputes(), 5000);
+    const intervalId = window.setInterval(() => void refreshSharedDisputes(), 15_000);
     window.addEventListener('focus', refreshSharedDisputes);
     return () => {
       active = false;

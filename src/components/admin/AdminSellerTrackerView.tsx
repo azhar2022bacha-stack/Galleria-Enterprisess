@@ -127,7 +127,7 @@ export function AdminSellerTrackerView() {
 
     setProgress(readProgress());
     void loadOrders();
-    const intervalId = window.setInterval(() => void loadOrders(), 8000);
+    const intervalId = window.setInterval(() => void loadOrders(), 15_000);
     const onFocus = () => void loadOrders();
     const onStorage = (event: StorageEvent) => {
       if (event.key === CONSIGN_ORDERS_STORAGE_KEY) void loadOrders();

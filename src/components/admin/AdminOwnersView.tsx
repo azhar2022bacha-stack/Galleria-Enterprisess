@@ -343,10 +343,10 @@ export function AdminOwnersView({ notify }: AdminOwnersViewProps) {
 
     fetchDynamicOwners(true);
 
-    // Auto-refresh interval (every 7 seconds) so newly registered shops automatically appear
+    // Refresh periodically while this view is open; focus refreshes immediately.
     const interval = setInterval(() => {
       fetchDynamicOwners(true);
-    }, 7000);
+    }, 15_000);
 
     // Re-fetch when admin switches tabs or window gains focus
     const handleFocus = () => fetchDynamicOwners(true);

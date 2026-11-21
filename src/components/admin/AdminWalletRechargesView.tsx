@@ -84,7 +84,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
     setIsRefreshing(true);
     try {const res=await fetch('/api/recharges',{cache:'no-store'});if(!res.ok)throw new Error('Unable to load recharges.');const data=await res.json();setRecharges(data.recharges);}catch(e:any){notify?.(e.message);}finally{setIsRefreshing(false);}
   };
-  useEffect(()=>{handleRefresh();const timer=setInterval(handleRefresh,3500);return()=>clearInterval(timer);},[]);
+  useEffect(()=>{handleRefresh();const timer=setInterval(handleRefresh,15_000);window.addEventListener('focus',handleRefresh);return()=>{clearInterval(timer);window.removeEventListener('focus',handleRefresh);};},[]);
   const review = async(item:WalletRechargeItem,status:string,creditedAmount?:number)=>{try{const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'review',id:item.id,status,creditedAmount,sellerEmail:item.handle,rechargeReference:item.reference,requestedAmount:item.amount})});if(!res.ok)throw new Error('Unable to update recharge.');await handleRefresh();window.dispatchEvent(new Event('galleria:admin-todo-changed'));notify?.('Recharge '+status.toLowerCase()+'.');}catch(e:any){notify?.(e.message);}};
   const handleConfirm=(item:WalletRechargeItem)=>{setConfirmRecharge(item);setCreditedUsd('');setConfirmError('');};
   const handleReject=(item:WalletRechargeItem)=>review(item,'Rejected');

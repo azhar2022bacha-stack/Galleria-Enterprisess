@@ -132,6 +132,66 @@ async function requestStorehouseMix(
   return payload;
 }
 
+interface CachedStorehouseCategory {
+  products: DemoProduct[];
+  fetchedAt: number;
+}
+
+const STOREHOUSE_CATEGORY_CACHE_TTL = 60_000;
+const STOREHOUSE_CATEGORY_CACHE_LIMIT = 8;
+const storehouseCategoryCache = new Map<string, CachedStorehouseCategory>();
+const storehouseCategoryRequests = new Map<string, Promise<CachedStorehouseCategory>>();
+
+function getCachedStorehouseCategory(categorySlug: string): CachedStorehouseCategory | null {
+  const cached = storehouseCategoryCache.get(categorySlug);
+  if (!cached) return null;
+  storehouseCategoryCache.delete(categorySlug);
+  storehouseCategoryCache.set(categorySlug, cached);
+  return cached;
+}
+
+function requestStorehouseCategory(categorySlug: string): Promise<CachedStorehouseCategory> {
+  const inFlight = storehouseCategoryRequests.get(categorySlug);
+  if (inFlight) return inFlight;
+
+  let request: Promise<CachedStorehouseCategory>;
+  request = (async () => {
+    const response = await fetch(`/api/storehouse/catalog?category=${encodeURIComponent(categorySlug)}`, {
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Your seller sign-in has expired. Sign in again to load Storehouse products.');
+      }
+      throw new Error(payload?.error || 'Storehouse product listings could not be loaded.');
+    }
+    if (!Array.isArray(payload?.products)) {
+      throw new Error('Storehouse product listings could not be loaded.');
+    }
+
+    const cached: CachedStorehouseCategory = {
+      products: payload.products as DemoProduct[],
+      fetchedAt: Date.now(),
+    };
+    storehouseCategoryCache.delete(categorySlug);
+    storehouseCategoryCache.set(categorySlug, cached);
+    while (storehouseCategoryCache.size > STOREHOUSE_CATEGORY_CACHE_LIMIT) {
+      const oldestCategory = storehouseCategoryCache.keys().next().value;
+      if (!oldestCategory) break;
+      storehouseCategoryCache.delete(oldestCategory);
+    }
+    return cached;
+  })().finally(() => {
+    if (storehouseCategoryRequests.get(categorySlug) === request) {
+      storehouseCategoryRequests.delete(categorySlug);
+    }
+  });
+
+  storehouseCategoryRequests.set(categorySlug, request);
+  return request;
+}
+
 export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   remainingSlots,
   planLimit = 300,
@@ -168,6 +228,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   const [mixedRefresh, setMixedRefresh] = useState(0);
   const mixedSnapshot = useRef<{ filters: StorehouseMixFilters; id: string } | null>(null);
   const mixedBulkRequest = useRef<AbortController | null>(null);
+  const categoryPrefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isAddingMixedProducts, setIsAddingMixedProducts] = useState(false);
   const isAllCategories = selectedCategory === 'All categories';
   const mixedExcludedIds = hideAdded ? addedStorehouseIds : undefined;
@@ -248,7 +309,39 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     setPage(1);
   };
 
+  const scheduleCategoryPrefetch = (categorySlug: string) => {
+    if (categoryPrefetchTimer.current) clearTimeout(categoryPrefetchTimer.current);
+    const cached = getCachedStorehouseCategory(categorySlug);
+    if (cached && Date.now() - cached.fetchedAt < STOREHOUSE_CATEGORY_CACHE_TTL) return;
+    categoryPrefetchTimer.current = setTimeout(() => {
+      categoryPrefetchTimer.current = null;
+      void requestStorehouseCategory(categorySlug).catch(() => undefined);
+    }, 180);
+  };
+
+  useEffect(() => () => {
+    if (categoryPrefetchTimer.current) clearTimeout(categoryPrefetchTimer.current);
+  }, []);
+
   const handleCategorySelect = (categoryName: string) => {
+    if (categoryPrefetchTimer.current) {
+      clearTimeout(categoryPrefetchTimer.current);
+      categoryPrefetchTimer.current = null;
+    }
+    const selectedDefinition = catalogCategories.find((category) => category.name === categoryName);
+    const selectedIsFeedCategory = Boolean(selectedDefinition && feedCategories.some((category) => category.slug === selectedDefinition.slug));
+    const cached = selectedDefinition && selectedIsFeedCategory
+      ? getCachedStorehouseCategory(selectedDefinition.slug)
+      : null;
+    if (cached && selectedDefinition) {
+      setPersistedCategoryData({ category: categoryName, products: cached.products });
+      setIsVerifiedProductsLoading(false);
+    } else if (selectedIsFeedCategory) {
+      setIsVerifiedProductsLoading(true);
+    } else {
+      setPersistedCategoryData(null);
+      setIsVerifiedProductsLoading(false);
+    }
     setSelectedCategory(categoryName);
     setSelectedSubcategory('All');
     setPage(1);
@@ -292,8 +385,23 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   ]);
 
   const queryResult = useMemo(() => {
-    return isAllCategories ? null : queryDemoProducts(filterState, addedStorehouseIds);
-  }, [addedStorehouseIds, filterState, isAllCategories]);
+    const categoryIsManagedFeed = feedCategories.some(
+      (category) =>
+        activeCategoryDefinition?.name === selectedCategory &&
+        activeCategoryDefinition.slug === category.slug,
+    );
+
+    return isAllCategories || categoryIsManagedFeed
+      ? null
+      : queryDemoProducts(filterState, addedStorehouseIds);
+  }, [
+    addedStorehouseIds,
+    activeCategoryDefinition,
+    feedCategories,
+    filterState,
+    isAllCategories,
+    selectedCategory,
+  ]);
 
   useEffect(() => {
     if (!isAllCategories) return;
@@ -380,13 +488,22 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       .catch(() => {
         setHasLoadedCategoryCounts(false);
       });
-    const refreshCatalog = () => { void refreshCategories(); void refreshCounts(); };
+    const refreshCatalog = () => {
+      if (document.visibilityState === 'hidden') return;
+      void refreshCategories();
+      void refreshCounts();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshCatalog();
+    };
     refreshCatalog();
-    const timer = setInterval(refreshCatalog, 15000);
+    const timer = setInterval(refreshCatalog, 60_000);
     window.addEventListener('focus', refreshCatalog);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       clearInterval(timer);
       window.removeEventListener('focus', refreshCatalog);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 
@@ -398,42 +515,36 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       return;
     }
 
-    const controller = new AbortController();
-    setIsVerifiedProductsLoading(true);
+    const cached = getCachedStorehouseCategory(selectedFeedCategorySlug);
+    if (cached) {
+      setPersistedCategoryData({ category: selectedFeedCategoryName, products: cached.products });
+      setIsVerifiedProductsLoading(false);
+    } else {
+      setIsVerifiedProductsLoading(true);
+    }
     setCatalogLoadError('');
-    fetch(`/api/storehouse/catalog?category=${encodeURIComponent(selectedFeedCategorySlug)}`, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('Your seller sign-in has expired. Sign in again to load Storehouse products.');
-          }
-          throw new Error(payload?.error || 'Storehouse product listings could not be loaded.');
-        }
-        return payload;
-      })
-      .then((payload) => {
-        if (Array.isArray(payload.products)) {
-          setPersistedCategoryData({ category: selectedFeedCategoryName, products: payload.products as DemoProduct[] });
-          setCategoryCounts((previous) => ({ ...previous, [selectedFeedCategorySlug]: payload.products.length }));
-        }
+    if (cached && Date.now() - cached.fetchedAt < STOREHOUSE_CATEGORY_CACHE_TTL) return;
+
+    let active = true;
+    requestStorehouseCategory(selectedFeedCategorySlug)
+      .then((result) => {
+        if (!active) return;
+        setPersistedCategoryData({ category: selectedFeedCategoryName, products: result.products });
+        setCategoryCounts((previous) => ({ ...previous, [selectedFeedCategorySlug]: result.products.length }));
       })
       .catch((error) => {
-        if (error?.name !== 'AbortError') {
-          setPersistedCategoryData((current) => current?.category === selectedFeedCategoryName
-            ? current
-            : { category: selectedFeedCategoryName, products: [] });
+        if (active) {
+          if (!cached) {
+            setPersistedCategoryData({ category: selectedFeedCategoryName, products: [] });
+          }
           setCatalogLoadError(error?.message || 'Storehouse product listings could not be loaded.');
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setIsVerifiedProductsLoading(false);
+        if (active) setIsVerifiedProductsLoading(false);
       });
 
-    return () => controller.abort();
+    return () => { active = false; };
   }, [isSelectedFeedCategory, selectedFeedCategoryName, selectedFeedCategorySlug]);
 
   const isManagedImportCategory = feedCategories.some((category) =>
@@ -964,6 +1075,16 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
             return (
               <button
                 key={cat.id}
+                onPointerEnter={() => {
+                  if (feedCategories.some((category) => category.slug === cat.slug)) {
+                    scheduleCategoryPrefetch(cat.slug);
+                  }
+                }}
+                onFocus={() => {
+                  if (feedCategories.some((category) => category.slug === cat.slug)) {
+                    scheduleCategoryPrefetch(cat.slug);
+                  }
+                }}
                 onClick={() => handleCategorySelect(cat.name)}
                 className={`px-3.5 py-1.5 rounded-full text-xs transition-all flex items-center gap-1.5 ${
                   isActive
@@ -1056,6 +1177,18 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       {/* 5. PRODUCT DISPLAY: GRID OR TABLE MANIFEST                             */}
       {/* ===================================================================== */}
       {pageProducts.length === 0 ? (
+        isManagedImportCategory && isVerifiedProductsLoading && !loadedCategoryProducts ? (
+          <div role="status" aria-label="Loading Storehouse category products" aria-busy="true" className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="animate-pulse rounded-2xl border border-gray-200 bg-white p-4">
+                <div className="mb-4 h-60 rounded-xl bg-slate-100" />
+                <div className="h-4 w-3/4 rounded bg-slate-100" />
+                <div className="mt-3 h-3 w-1/2 rounded bg-slate-100" />
+                <div className="mt-5 h-8 rounded-lg bg-slate-100" />
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-400 space-y-3">
           <PackageOpen className="w-10 h-10 text-gray-300 mx-auto mb-2" />
           <h3 className="font-bold text-gray-800 text-base">
@@ -1097,6 +1230,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
             </div>
           )}
         </div>
+        )
       ) : viewMode === 'grid' ? (
         /* GRID VIEW: Direct Selection & Quick View (PRD) */
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">

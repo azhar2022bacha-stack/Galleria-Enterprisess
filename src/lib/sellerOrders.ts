@@ -116,6 +116,7 @@ const KYC_DATA_KEY = 'galleria_seller_kyc_data';
 const PRODUCTS_KEY = 'galleria_seller_products';
 const SHOP_SETTINGS_KEY = 'galleria_seller_shop_settings';
 export const ORDERS_CHANGED_EVENT = 'galleria:seller-orders-changed';
+export const SELLER_PRODUCTS_CHANGED_EVENT = 'galleria:seller-products-changed';
 
 export interface ShopSettings {
   shopName: string;
@@ -1042,7 +1043,7 @@ export function saveSellerProducts(products: any[], email?: string) {
   }
   window.localStorage.setItem(`${PRODUCTS_KEY}_default`, serialized);
   window.localStorage.setItem(PRODUCTS_KEY, serialized);
-  emitChange();
+  window.dispatchEvent(new Event(SELLER_PRODUCTS_CHANGED_EVENT));
 
   // Dual-sync to server storage so Admin Panel -> Extension -> Owners -> Products sees live updates
   try {
@@ -1054,6 +1055,29 @@ export function saveSellerProducts(products: any[], email?: string) {
   } catch (err) {
     // Non-blocking
   }
+}
+
+/** Subscribe only to seller catalog changes, without reacting to wallet/order updates. */
+export function subscribeToSellerProducts(callback: () => void, email?: string): () => void {
+  if (!isBrowser()) return () => {};
+  const targetEmail = resolveSellerEmail(email);
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key) {
+      callback();
+      return;
+    }
+    if (targetEmail
+      ? event.key === `${PRODUCTS_KEY}_${targetEmail}`
+      : event.key === `${PRODUCTS_KEY}_default` || event.key === PRODUCTS_KEY) {
+      callback();
+    }
+  };
+  window.addEventListener(SELLER_PRODUCTS_CHANGED_EVENT, callback);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(SELLER_PRODUCTS_CHANGED_EVENT, callback);
+    window.removeEventListener('storage', onStorage);
+  };
 }
 
 export function getShopSettings(): ShopSettings {
@@ -1621,8 +1645,7 @@ export function subscribeToOrders(callback: () => void): () => void {
       e.key === KYC_STATUS_KEY ||
       e.key === KYC_DATA_KEY ||
       e.key === SHOP_SETTINGS_KEY ||
-      e.key === sellerStorageKey(SHOP_SETTINGS_KEY) ||
-      (e.key && e.key.startsWith(PRODUCTS_KEY))
+      e.key === sellerStorageKey(SHOP_SETTINGS_KEY)
     )
       callback();
   };

@@ -13,6 +13,7 @@ import {
   getShopSettings,
   hasSavedShopSettings,
   subscribeToOrders,
+  subscribeToSellerProducts,
   syncConsignOrdersFromServer,
   getSellerProducts,
   saveSellerProducts,
@@ -388,7 +389,12 @@ export default function SellerDashboardPage() {
         });
         if (active) {
           setUnreadNotificationCount(Number(data.unreadCount) || 0);
-          if (newlyUnread.length === 1) {
+          const walletReturnNotification = newlyUnread.find((notification: any) =>
+            String(notification.title || '').toLowerCase().includes('delivered and wallet credited')
+          );
+          if (walletReturnNotification) {
+            notify('New notification: ' + (walletReturnNotification.title || 'Order delivered and wallet credited'));
+          } else if (newlyUnread.length === 1) {
             notify('New notification: ' + (newlyUnread[0].title || 'New seller message'));
           } else if (newlyUnread.length > 1) {
             notify(newlyUnread.length + ' new seller notifications');
@@ -538,35 +544,33 @@ export default function SellerDashboardPage() {
     window.addEventListener('focus', fetchSellerData);
     document.addEventListener('visibilitychange', fetchSellerData);
 
-    const unsub = subscribeToOrders(() => {
+    const refreshShopSettings = () => {
       if (hasSavedShopSettings()) {
         const s = getShopSettings();
-        if (s && s.shopName) {
-          setMerchantProfile((prev) => ({
-            ...prev,
-            shopName: s.shopName || prev.shopName,
-          }));
+        if (s?.shopName) {
+          setMerchantProfile((prev) => prev.shopName === s.shopName
+            ? prev
+            : { ...prev, shopName: s.shopName });
         }
       }
+    };
+    const refreshSellerProducts = () => {
       const saved = getSellerProducts<ProductItem>(currentEmailRef.current || activeEmail);
-      if (saved.length > 0 || productsRef.current.length === 0) {
-        setProducts(saved);
-        setAddedStorehouseIds(saved.map((p) => p.id));
-        if (saved.length > 0) {
-          fetch('/api/seller/products', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: currentEmailRef.current || activeEmail || 'default', products: saved }),
-          }).catch(() => {});
-        }
-      }
-    });
+      setProducts(saved);
+      setAddedStorehouseIds(saved.map((product) => product.id));
+    };
+    const unsub = subscribeToOrders(refreshShopSettings);
+    const unsubscribeProducts = subscribeToSellerProducts(
+      refreshSellerProducts,
+      currentEmailRef.current || activeEmail,
+    );
 
   return () => {
       clearInterval(pollInterval);
       window.removeEventListener('focus', fetchSellerData);
       document.removeEventListener('visibilitychange', fetchSellerData);
       unsub();
+      unsubscribeProducts();
     };
   }, []);
 
@@ -832,10 +836,11 @@ export default function SellerDashboardPage() {
         // Keep the warning visible if this browser blocks notification audio.
       }
     }
+    const isWalletReturnNotification = normalizedMessage.includes('delivered and wallet credited');
     notificationToastTimeoutRef.current = setTimeout(() => {
       setShowNotificationToast(null);
       notificationToastTimeoutRef.current = null;
-    }, isInsufficientBalanceWarning ? 5000 : 3500);
+    }, isWalletReturnNotification ? 12_000 : isInsufficientBalanceWarning ? 5000 : 3500);
   };
 
   const viewMyPublicStore = async () => {
@@ -994,16 +999,20 @@ export default function SellerDashboardPage() {
     showNotificationToast?.toLowerCase().startsWith('your wallet balance is too low') ||
     showNotificationToast?.toLowerCase().startsWith('insufficient wallet balance.')
   );
+  const isWalletReturnToast = Boolean(
+    showNotificationToast?.toLowerCase().startsWith('new notification: order') &&
+    showNotificationToast?.toLowerCase().includes('delivered and wallet credited')
+  );
 
   return (
     <div data-seller-layout className="min-h-screen bg-[#f4f6f9] flex text-gray-900 font-sans selection:bg-[#cca23b] selection:text-white">
       {/* Toast Notification */}
       {showNotificationToast && (
-        <div className="fixed top-5 right-5 z-50 animate-slideUp">
-          <div className={`px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs ${isInsufficientBalanceToast ? 'bg-gradient-to-r from-sky-50 to-blue-100 text-blue-950 border border-blue-200 shadow-[0_8px_30px_rgba(37,99,235,0.28)] ring-2 ring-blue-300/60 font-semibold' : 'bg-[#071324] text-white border border-[#cca23b]/50 font-medium'}`}>
+        <div className={`fixed top-5 right-5 z-50 animate-slideUp ${isWalletReturnToast ? 'left-4 right-4 sm:left-auto sm:w-[28rem]' : ''}`}>
+          <div className={`flex items-center rounded-xl shadow-xl ${isWalletReturnToast ? 'w-full gap-3 border border-emerald-300 bg-[#071324] px-6 py-5 text-base font-semibold leading-6 text-white shadow-2xl ring-2 ring-emerald-300/40' : `gap-2.5 px-4 py-2.5 text-xs ${isInsufficientBalanceToast ? 'bg-gradient-to-r from-sky-50 to-blue-100 text-blue-950 border border-blue-200 shadow-[0_8px_30px_rgba(37,99,235,0.28)] ring-2 ring-blue-300/60 font-semibold' : 'bg-[#071324] text-white border border-[#cca23b]/50 font-medium'}`} `}>
             {isInsufficientBalanceToast
               ? <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0" />
-              : <CheckCircle2 className="w-4 h-4 text-[#cca23b]" />}
+              : <CheckCircle2 className={`${isWalletReturnToast ? 'h-6 w-6 text-emerald-300' : 'w-4 h-4 text-[#cca23b]'} shrink-0`} />}
             <span>{showNotificationToast}</span>
           </div>
         </div>

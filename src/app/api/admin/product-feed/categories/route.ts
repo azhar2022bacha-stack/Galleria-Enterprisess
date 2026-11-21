@@ -5,7 +5,8 @@ import {
   readStorehouseProductFeedCategoryDeletionState,
   StorehouseProductFeedCategoryConflictError,
 } from '@/lib/storehouseProductFeedCategoriesServer';
-import { deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
+import { deleteAllProductFeedCategoriesEverywhere, deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
+import { readAdminProductCategoryCounts } from '@/lib/adminProductCategoryCountsServer';
 import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
 import { readProductFeedCategoryLists, updateProductFeedCategoriesEverywhere } from '@/lib/productFeedSharedCategoriesServer';
 
@@ -17,10 +18,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
   const lists = readProductFeedCategoryLists();
+  const counts = await readAdminProductCategoryCounts();
   return NextResponse.json({
     success: true,
     categories: lists.storehouseCategories,
     ...lists,
+    ...counts,
     ...readStorehouseProductFeedCategoryDeletionState(),
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
@@ -67,6 +70,10 @@ export async function DELETE(request: Request) {
   catch { return NextResponse.json({ success: false, error: 'Invalid category deletion request.' }, { status: 400 }); }
 
   try {
+    if (body.kind === 'all-categories') {
+      const result = await deleteAllProductFeedCategoriesEverywhere();
+      return NextResponse.json({ success: true, ...result });
+    }
     if (body.scope === 'all-catalogs') {
       return NextResponse.json({ success: true, ...await updateProductFeedCategoriesEverywhere('delete', body) });
     }

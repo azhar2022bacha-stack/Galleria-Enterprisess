@@ -34,6 +34,7 @@ import {
   removeStorehouseFallbackProducts,
   writeStorehouseFallbackProducts,
 } from '@/lib/storehouseCatalogFallbackServer';
+import { catalogCategorySourceSlugs } from '@/data/catalogCategoryReplacements';
 
 type CategoryKind = 'category' | 'subcategory';
 type CategoryShape = { name: string; slug: string; subcategories: { name: string; slug: string }[] };
@@ -206,6 +207,7 @@ async function deleteStorehouseRows(
   kind: CategoryKind,
   scopes: ProductScope[],
   persistCatalogs: (result: { productIds: string[]; deletedProducts: number; storehouseDatabaseSkipped?: boolean }) => Promise<void>,
+  deleteAllProducts = false,
 ): Promise<{ productIds: string[]; deletedProducts: number; storehouseDatabaseSkipped?: boolean }> {
   if (!process.env.DATABASE_URL?.trim()) {
     const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
@@ -213,6 +215,9 @@ async function deleteStorehouseRows(
     return deleted;
   }
   if (!(await initDb())) {
+    if (deleteAllProducts && process.env.DATABASE_URL?.trim()) {
+      throw new Error('All categories were not deleted because the catalog database is unavailable. Try again when the database is online.');
+    }
     const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
     await persistCatalogs(deleted);
     return deleted;
@@ -223,6 +228,9 @@ async function deleteStorehouseRows(
     client = await pool.connect();
   } catch (error) {
     if (!isDatabaseUnavailableError(error)) throw error;
+    if (deleteAllProducts) {
+      throw new Error('All categories were not deleted because the catalog database is unavailable. Try again when the database is online.');
+    }
     const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
     await persistCatalogs(deleted);
     return deleted;
@@ -237,7 +245,11 @@ async function deleteStorehouseRows(
     await client.query('BEGIN');
     await lockConsignCatalogForWrite(client);
     const result = await client.query<{ product_id: string; import_batch_id: string | null }>(
-      kind === 'category'
+      deleteAllProducts
+        ? `DELETE FROM storehouse_catalog_products
+           WHERE source_batch = ANY($1::text[])
+           RETURNING product_id, import_batch_id`
+        : kind === 'category'
         ? `DELETE FROM storehouse_catalog_products
            WHERE source_batch = ANY($1::text[])
              AND (category_slug = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
@@ -247,22 +259,30 @@ async function deleteStorehouseRows(
              AND (category_slug = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
              AND ((product_data->>'subcategorySlug') = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))
            RETURNING product_id, import_batch_id`,
-      kind === 'category'
+      deleteAllProducts
+        ? [batches]
+        : kind === 'category'
         ? [batches, categorySlugs, categoryNames]
         : [batches, categorySlugs, categoryNames, subcategorySlugs, subcategoryNames],
     );
-    await client.query(
-      `DELETE FROM consign_catalog_products
-       WHERE lower(category_name) = ANY($1::text[])
-         AND ($2 = 'category' OR lower(subcategory_name) = ANY($3::text[]))`,
-      [categoryNames, kind, subcategoryNames],
-    );
-    const consign = await client.query(
-      `DELETE FROM consign_feed_products
-       WHERE (category_slug = ANY($1::text[]) OR lower(category_name) = ANY($2::text[]))
-         AND ($3 = 'category' OR subcategory_slug = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))`,
-      [categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
-    );
+    if (deleteAllProducts) {
+      await client.query('DELETE FROM consign_catalog_products');
+    } else {
+      await client.query(
+        `DELETE FROM consign_catalog_products
+         WHERE lower(category_name) = ANY($1::text[])
+           AND ($2 = 'category' OR lower(subcategory_name) = ANY($3::text[]))`,
+        [categoryNames, kind, subcategoryNames],
+      );
+    }
+    const consign = deleteAllProducts
+      ? await client.query('DELETE FROM consign_feed_products')
+      : await client.query(
+        `DELETE FROM consign_feed_products
+         WHERE (category_slug = ANY($1::text[]) OR lower(category_name) = ANY($2::text[]))
+           AND ($3 = 'category' OR subcategory_slug = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))`,
+        [categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
+      );
     const productIds = result.rows.map((row) => row.product_id);
     const batchIds = unique(result.rows.map((row) => row.import_batch_id).filter((value): value is string => Boolean(value)));
     for (const batchId of batchIds) {
@@ -297,45 +317,61 @@ export function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
   return withProductFeedCategoryWrite(() => deleteCategory(input));
 }
 
-async function deleteCategory(input: DeleteInput) {
-  if (input.kind !== 'category' && input.kind !== 'subcategory') throw new Error('Choose a category or subcategory to delete.');
-  const kind = input.kind as CategoryKind;
-  const requestedCategorySlug = String(input.categorySlug || '').trim();
-  const requestedCategoryName = String(input.categoryName || '').trim();
-  if (!requestedCategorySlug && !requestedCategoryName) throw new Error('Choose a category to delete.');
+export function deleteAllProductFeedCategoriesEverywhere() {
+  return withProductFeedCategoryWrite(() => deleteCategory({ kind: 'all-categories' }));
+}
 
+async function deleteCategory(input: DeleteInput) {
+  const deleteAllProducts = input.kind === 'all-categories';
+  if (!deleteAllProducts && input.kind !== 'category' && input.kind !== 'subcategory') throw new Error('Choose a category or subcategory to delete.');
+  const kind: CategoryKind = deleteAllProducts ? 'category' : input.kind as CategoryKind;
   const mainCategories = getStoreCategories() as CategoryShape[];
   const storehouseCategories = readStorehouseProductFeedCategories() as CategoryShape[];
-  const mainCategory = findCategory(mainCategories, requestedCategorySlug, requestedCategoryName);
-  const storehouseCategory = findCategory(storehouseCategories, requestedCategorySlug, requestedCategoryName);
-  if (!mainCategory && !storehouseCategory) throw new Error('Category was not found. Refresh the page and try again.');
+  let scopes: ProductScope[];
+  if (deleteAllProducts) {
+    const categories = [...mainCategories, ...storehouseCategories];
+    const scopesBySlug = new Map<string, ProductScope>();
+    for (const category of categories) {
+      for (const categorySlug of catalogCategorySourceSlugs(category.slug)) {
+        if (!scopesBySlug.has(categorySlug)) scopesBySlug.set(categorySlug, { categorySlug, categoryName: category.name });
+      }
+    }
+    scopes = [...scopesBySlug.values()];
+  } else {
+    const requestedCategorySlug = String(input.categorySlug || '').trim();
+    const requestedCategoryName = String(input.categoryName || '').trim();
+    if (!requestedCategorySlug && !requestedCategoryName) throw new Error('Choose a category to delete.');
+    const mainCategory = findCategory(mainCategories, requestedCategorySlug, requestedCategoryName);
+    const storehouseCategory = findCategory(storehouseCategories, requestedCategorySlug, requestedCategoryName);
+    if (!mainCategory && !storehouseCategory) throw new Error('Category was not found. Refresh the page and try again.');
 
-  const pairedCategories = [mainCategory, storehouseCategory].filter((category): category is CategoryShape => Boolean(category));
-  let requestedSubcategorySlug = String(input.subcategorySlug || '').trim();
-  let requestedSubcategoryName = String(input.subcategoryName || '').trim();
-  let resolvedSubcategory = kind === 'subcategory'
-    ? pairedCategories.map((category) => findSubcategory(category, requestedSubcategorySlug, requestedSubcategoryName)).find(Boolean)
-    : undefined;
-  if (kind === 'subcategory') {
-    if (!resolvedSubcategory) throw new Error('Subcategory was not found. Refresh the page and try again.');
-    requestedSubcategorySlug ||= resolvedSubcategory.slug;
-    requestedSubcategoryName ||= resolvedSubcategory.name;
-  }
-
-  const scopes: ProductScope[] = pairedCategories.map((category) => {
-    const subcategory = kind === 'subcategory'
-      ? findSubcategory(category, requestedSubcategorySlug, requestedSubcategoryName)
+    const pairedCategories = [mainCategory, storehouseCategory].filter((category): category is CategoryShape => Boolean(category));
+    let requestedSubcategorySlug = String(input.subcategorySlug || '').trim();
+    let requestedSubcategoryName = String(input.subcategoryName || '').trim();
+    const resolvedSubcategory = kind === 'subcategory'
+      ? pairedCategories.map((category) => findSubcategory(category, requestedSubcategorySlug, requestedSubcategoryName)).find(Boolean)
       : undefined;
-    return {
-      categorySlug: category.slug,
-      categoryName: category.name,
-      ...(kind === 'subcategory' ? {
-        subcategorySlug: subcategory?.slug || requestedSubcategorySlug || slugify(requestedSubcategoryName),
-        subcategoryName: subcategory?.name || requestedSubcategoryName,
-      } : {}),
-    };
-  });
-  if (!scopes.length) throw new Error('Category was not found. Refresh the page and try again.');
+    if (kind === 'subcategory') {
+      if (!resolvedSubcategory) throw new Error('Subcategory was not found. Refresh the page and try again.');
+      requestedSubcategorySlug ||= resolvedSubcategory.slug;
+      requestedSubcategoryName ||= resolvedSubcategory.name;
+    }
+
+    scopes = pairedCategories.map((category) => {
+      const subcategory = kind === 'subcategory'
+        ? findSubcategory(category, requestedSubcategorySlug, requestedSubcategoryName)
+        : undefined;
+      return {
+        categorySlug: category.slug,
+        categoryName: category.name,
+        ...(kind === 'subcategory' ? {
+          subcategorySlug: subcategory?.slug || requestedSubcategorySlug || slugify(requestedSubcategoryName),
+          subcategoryName: subcategory?.name || requestedSubcategoryName,
+        } : {}),
+      };
+    });
+  }
+  if (!scopes.length && !deleteAllProducts) throw new Error('Category was not found. Refresh the page and try again.');
 
   let databaseFallback = false;
   let oldListings: RetailListing[];
@@ -358,8 +394,13 @@ async function deleteCategory(input: DeleteInput) {
   const oldStorehouseOverrides = readStorehouseProductFeedCategoryOverrides();
   const oldSellerProducts = readAllSellerProductsMap();
   const oldStorehouseFallbackProducts = readStorehouseFallbackProducts();
-  const nextStorehouseFallback = removeStorehouseFallbackProducts(kind, scopes);
-  const removedListings = oldListings.filter((listing) => listingMatchesAnyScope(listing, scopes));
+  const nextStorehouseFallback = deleteAllProducts
+    ? { products: [], removedCount: oldStorehouseFallbackProducts.length }
+    : removeStorehouseFallbackProducts(kind, scopes);
+  const hasAssignedCategory = (item: { category?: string; categorySlug?: string }) => Boolean(item.categorySlug || item.category);
+  const removedListings = oldListings.filter((listing) => deleteAllProducts
+    ? hasAssignedCategory(listing)
+    : listingMatchesAnyScope(listing, scopes));
   const removedIds = new Set(removedListings.map((listing) => listing.id));
   for (const batch of oldHistory) {
     for (const previousListing of batch.previousListings) {
@@ -368,23 +409,28 @@ async function deleteCategory(input: DeleteInput) {
   }
   const removedListingIds = new Set(removedListings.map((listing) => listing.id));
   const nextListings = oldListings.filter((listing) => !removedListingIds.has(listing.id));
-  const nextHistory = removeListingsFromHistory(oldHistory, removedIds, scopes);
+  const nextHistory = deleteAllProducts ? [] : removeListingsFromHistory(oldHistory, removedIds, scopes);
   const nextMainOverrides = removeCategoryOverrides(oldMainOverrides, kind, scopes);
   const nextStorehouseOverrides = removeStorehouseOverrides(oldStorehouseOverrides, kind, scopes);
 
   let retainedSellerImages = new Set<string>();
+  const removedSellerProductIds = new Set<string>();
   let removedStorehouseFallbackProducts = 0;
   const database = await deleteStorehouseRows(kind, scopes, async (deleted) => {
     const useFileFallback = databaseFallback || deleted.storehouseDatabaseSkipped === true;
-    const removedSellerProductIds = new Set([
+    const removedFeedProductIds = new Set([
       ...deleted.productIds,
       ...deleted.productIds.map((id) => `p-${id}`),
     ]);
     const nextSellerProducts = Object.fromEntries(Object.entries(oldSellerProducts).map(([email, products]) => [
       email,
-      Array.isArray(products) ? products.filter((product) => (
-        !removedSellerProductIds.has(product?.id) && !sellerProductMatchesScope(product || {}, kind, scopes)
-      )) : products,
+      Array.isArray(products) ? products.filter((product) => {
+        const removed = removedFeedProductIds.has(product?.id)
+          || (deleteAllProducts && hasAssignedCategory(product || {}))
+          || sellerProductMatchesScope(product || {}, kind, scopes);
+        if (removed && product?.id) removedSellerProductIds.add(product.id);
+        return !removed;
+      }) : products,
     ]));
     retainedSellerImages = new Set(Object.values(nextSellerProducts).flatMap((products) => (
       Array.isArray(products) ? products.map((product) => product?.image).filter((image): image is string => typeof image === 'string') : []
@@ -418,7 +464,7 @@ async function deleteCategory(input: DeleteInput) {
       } catch { /* Return the original error; recovery is best effort. */ }
       throw error;
     }
-  });
+  }, deleteAllProducts);
 
   const deletedImagePaths = new Set(removedListings.flatMap(listingImagePaths));
   for (const batch of oldHistory) {
@@ -444,7 +490,8 @@ async function deleteCategory(input: DeleteInput) {
   return {
     categories: getStoreCategories(),
     storehouseCategories: readStorehouseProductFeedCategories(),
-    deletedProducts: removedListings.length + database.deletedProducts + removedStorehouseFallbackProducts,
+    deletedProducts: removedListings.length + database.deletedProducts + removedStorehouseFallbackProducts + removedSellerProductIds.size,
+    deletedSellerProducts: removedSellerProductIds.size,
     deletedMainStoreProducts: removedListings.length,
     deletedStorehouseProducts: database.deletedProducts + removedStorehouseFallbackProducts,
     storehouseDatabaseSkipped: database.storehouseDatabaseSkipped === true,

@@ -268,6 +268,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
   })))));
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [refreshingCategories, setRefreshingCategories] = useState(false);
+  const [categoryProductCounts, setCategoryProductCounts] = useState<Record<string, number>>({});
+  const [categoryProductCountsIncomplete, setCategoryProductCountsIncomplete] = useState(false);
   const categoryRequestVersion = useRef(0);
   const [categoryManagerKind, setCategoryManagerKind] = useState<'category' | 'subcategory' | null>(null);
   const [categoryName, setCategoryName] = useState('');
@@ -335,6 +337,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
       if (categoryRequestVersion.current === version) {
         setStoreCategories(payload.mainStoreCategories);
         setStorehouseCategories(payload.storehouseCategories);
+        setCategoryProductCounts(payload.categoryProductCounts && typeof payload.categoryProductCounts === 'object' ? payload.categoryProductCounts : {});
+        setCategoryProductCountsIncomplete(payload.categoryProductCountsIncomplete === true);
       }
     } catch (error) {
       if (categoryRequestVersion.current === version) {
@@ -518,8 +522,55 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
       const successMessage = `${label} removed from all catalogs.`;
       setCategoryNotice(successMessage);
       notify?.(successMessage);
+      void refreshDestination();
     } catch (error) {
       setCategoryError(error instanceof Error ? error.message : 'Could not delete this category.');
+    } finally {
+      setDeletingCategoryKey('');
+    }
+  };
+
+  const deleteAllCategories = async () => {
+    const totalProducts = Object.values(categoryProductCounts).reduce((sum, count) => sum + count, 0);
+    const productCountLabel = categoryProductCountsIncomplete
+      ? 'all categorized products'
+      : `${totalProducts.toLocaleString()} categorized products`;
+    const confirmed = window.confirm(
+      `Permanently delete all ${managedCategories.length} categories and ${productCountLabel} from Main Store, Seller Storehouse, seller accounts, and Consign? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingCategoryKey('all-categories');
+    setCategoryError('');
+    setCategoryNotice('');
+    try {
+      const response = await fetch('/api/admin/product-feed/categories', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'all-catalogs', kind: 'all-categories' }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not delete all categories.');
+
+      categoryRequestVersion.current += 1;
+      setRefreshingCategories(false);
+      setStoreCategories(Array.isArray(payload.categories) ? payload.categories : []);
+      setStorehouseCategories(Array.isArray(payload.storehouseCategories) ? payload.storehouseCategories : []);
+      setCategoryProductCounts({});
+      setCategoryProductCountsIncomplete(false);
+      setCategorySlug('');
+      setSubcategorySlug('');
+      setCsvCategorySlug('');
+      setCsvSubcategorySlug('');
+      setCategoryManagerKind(null);
+      setCategoryName('');
+      setPreview(null);
+      const deletedCount = Number(payload.deletedProducts) || 0;
+      const successMessage = `All categories deleted. ${deletedCount.toLocaleString()} categorized products were permanently removed from all catalogs.`;
+      setCategoryNotice(successMessage);
+      notify?.(successMessage);
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : 'Could not delete all categories.');
     } finally {
       setDeletingCategoryKey('');
     }
@@ -698,6 +749,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
             <div><h2 className="text-sm font-bold text-slate-900">Manage categories</h2><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">Changes apply to Main Store, Seller Storehouse, and Consigned Products.</p></div>
           </div>
           <div className="flex flex-wrap gap-2 sm:justify-end">
+            <button type="button" onClick={() => void deleteAllCategories()} disabled={!managedCategories.length || Boolean(deletingCategoryKey)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-[11px] font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">{deletingCategoryKey === 'all-categories' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}Delete All Categories</button>
             <button type="button" onClick={refreshDestination} disabled={refreshingCategories} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${refreshingCategories ? 'animate-spin' : ''}`} />Refresh categories</button>
             <button type="button" onClick={() => openCategoryManager('category')} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"><Plus className="h-3.5 w-3.5" />Add category</button>
             <button type="button" disabled={!managedCategories.length} onClick={() => openCategoryManager('subcategory')} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"><Plus className="h-3.5 w-3.5" />Add subcategory</button>
@@ -736,7 +788,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
           <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
             {managedCategories.map((category) => <details key={category.slug} className="group px-3 py-2.5">
               <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
-                <span className="min-w-0 flex-1 truncate">{category.name}<span className="ml-2 text-[10px] font-normal text-slate-500">{category.subcategories.length} subcategories</span></span>
+                <span className="min-w-0 flex-1 truncate">{category.name}<span className="ml-2 text-[10px] font-semibold text-[#173759]">{(categoryProductCounts[category.slug] || 0).toLocaleString()} products</span><span className="ml-2 text-[10px] font-normal text-slate-500">{category.subcategories.length} subcategories</span></span>
                 <button type="button" disabled={Boolean(deletingCategoryKey)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteManagedCategory('category', category); }} className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-rose-200 px-2 text-[10px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="h-3 w-3" />{deletingCategoryKey === `category:${category.slug}:` ? <LoaderCircle className="h-3 w-3 animate-spin" /> : 'Delete category'}</button>
               </summary>
               {category.subcategories.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
@@ -749,6 +801,20 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
             {!managedCategories.length && <p className="px-3 py-5 text-center text-[11px] text-slate-500">No categories are available.</p>}
           </div>
         </div>
+        <section aria-label="Product counts by category" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div><h3 className="text-[11px] font-bold text-slate-800">Products by category</h3><p className="mt-0.5 text-[10px] text-slate-500">Counts include categorized products across Main Store, seller accounts, Storehouse, and Consign.</p></div>
+            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600">{Object.values(categoryProductCounts).reduce((sum, count) => sum + count, 0).toLocaleString()} products total</span>
+          </div>
+          <div className="grid max-h-48 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+            {managedCategories.map((category) => <div key={category.slug} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px]">
+              <span className="truncate font-medium text-slate-700">{category.name}</span>
+              <span className="shrink-0 font-bold text-[#173759]">{(categoryProductCounts[category.slug] || 0).toLocaleString()}</span>
+            </div>)}
+            {!managedCategories.length && <p className="col-span-full px-2 py-4 text-center text-[10px] text-slate-500">No category totals to show.</p>}
+          </div>
+          {categoryProductCountsIncomplete && <p role="status" className="mt-2 text-[10px] font-medium text-amber-700">Some catalog data could not be reached, so these totals may be incomplete.</p>}
+        </section>
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

@@ -146,6 +146,7 @@ export function SellerOrdersPanel({
 
   const normalizeOrderCode = (value: unknown) => String(value || '').trim().replace(/^#/, '').toLowerCase();
   const getOrderOutcome = (order: SellerOrder) => {
+    if (order.outcome) return order.outcome;
     if (order.source !== 'consign' && !order.consignOrderId) return undefined;
     return orderOutcomes[`id:${order.consignOrderId || order.id}`] ||
       orderOutcomes[`code:${normalizeOrderCode(order.code)}`];

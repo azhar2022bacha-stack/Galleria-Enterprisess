@@ -22,9 +22,12 @@ import {
   getCurrentPackageTier,
   SellerOrder,
 } from '@/lib/sellerOrders';
+import { summarizeSellerDashboardOrders } from '@/lib/sellerDashboardMetrics';
 import { DemoProduct } from '@/types/product';
 import { getEligibleDemoProducts } from '@/lib/mock-products';
 
+
+const formatUsd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format;
 
 const ViewSkeleton = () => (
   <div className="w-full h-80 flex items-center justify-center">
@@ -358,6 +361,9 @@ export default function SellerDashboardPage() {
   const [sellerStatus, setSellerStatus] = useState<string>('review');
   const [sellerIdStatus, setSellerIdStatus] = useState<string>('No ID uploaded');
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [approvalViewed, setApprovalViewed] = useState(false);
+  const [grantedFunds, setGrantedFunds] = useState(0);
+  const [retailGrossSales, setRetailGrossSales] = useState(0);
   const prevApprovedRef = React.useRef<boolean | null>(null);
   const currentEmailRef = React.useRef<string>('');
   const seenSellerNotificationIdsRef = React.useRef<Set<string> | null>(null);
@@ -494,6 +500,9 @@ export default function SellerDashboardPage() {
             const idSt = data.seller.idStatus || 'No ID uploaded';
             setSellerStatus(st);
             setSellerIdStatus(idSt);
+            setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
+            setGrantedFunds(Number(data.seller.grantedFunds) || 0);
+            setRetailGrossSales(Number(data.seller.retailGrossSales) || 0);
 
             const isNowApproved = st === 'approved' && idSt === 'Verified' && Boolean(data.seller.isApproved);
             if (prevApprovedRef.current === false && isNowApproved) {
@@ -550,6 +559,10 @@ export default function SellerDashboardPage() {
                   isApproved: isNowApproved,
                 })
               );
+              if (finalEmail && activeEmail !== finalEmail) {
+                activeEmail = finalEmail;
+                void syncApprovedRecharges();
+              }
             }
           }
         }
@@ -607,10 +620,6 @@ export default function SellerDashboardPage() {
       setWalletBalance(getWallet());
     };
     refresh();
-    const emailForSync = currentEmailRef.current || merchantProfile.email || '';
-    if (emailForSync) {
-      syncConsignOrdersFromServer(emailForSync);
-    }
     let syncInFlight = false;
     const syncOrders = () => {
       if (syncInFlight || document.visibilityState === 'hidden') return;
@@ -619,20 +628,41 @@ export default function SellerDashboardPage() {
       syncInFlight = true;
       void syncConsignOrdersFromServer(e).finally(() => { syncInFlight = false; });
     };
-    const poll = setInterval(syncOrders, 30_000);
+    syncOrders();
+    const poll = setInterval(syncOrders, 15_000);
     window.addEventListener('focus', syncOrders);
+    document.addEventListener('visibilitychange', syncOrders);
     const unsub = subscribeToOrders(refresh);
     return () => {
       clearInterval(poll);
       window.removeEventListener('focus', syncOrders);
+      document.removeEventListener('visibilitychange', syncOrders);
       unsub();
     };
   }, [merchantProfile.email]);
-  const liveAwaitingCount = liveOrders.filter((o) => o.status === 'awaiting_payment').length;
-  const liveInProgressCount = liveOrders.filter((o) =>
-    ['confirmed', 'picked_up', 'on_the_way'].includes(o.status)
-  ).length;
-  const liveDeliveredCount = liveOrders.filter((o) => o.status === 'delivered').length;
+  const { flow, grossSales, estimatedProfit } = React.useMemo(() => summarizeSellerDashboardOrders(liveOrders), [liveOrders]);
+  const liveAwaitingCount = flow.new;
+  const liveInProgressCount = flow.confirmed + flow.pickedUp + flow.onTheWay;
+  const processingStages = [
+    { label: 'Confirmed', count: flow.confirmed },
+    { label: 'Picked Up', count: flow.pickedUp },
+    { label: 'On the Way', count: flow.onTheWay },
+  ].filter(({ count }) => count > 0);
+
+  const viewApprovalStatus = async () => {
+    setActiveNav('verification');
+    try {
+      const response = await fetch('/api/seller/current', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'view-approval' }),
+      });
+      if (!response.ok) throw new Error('Could not save approval view.');
+      setApprovalViewed(true);
+    } catch {
+      notify('Could not save that you viewed your approval status. Please try again.');
+    }
+  };
   // Modals state
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -1370,7 +1400,7 @@ export default function SellerDashboardPage() {
               </div>
 
               {/* Account Status Banner */}
-              {isApproved ? (
+              {isApproved ? (!approvalViewed && (
                 <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 via-emerald-50/60 to-white border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-600/20">
@@ -1391,13 +1421,13 @@ export default function SellerDashboardPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => setActiveNav('verification')}
+                    onClick={viewApprovalStatus}
                     className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold whitespace-nowrap self-start sm:self-auto transition-colors shadow-2xs"
                   >
                     View Status
                   </button>
                 </div>
-              ) : sellerStatus === 'pending' || sellerIdStatus === 'Pending' || sellerIdStatus === 'Pending verification' ? (
+              )) : sellerStatus === 'pending' || sellerIdStatus === 'Pending' || sellerIdStatus === 'Pending verification' ? (
                 <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/20">
@@ -1513,14 +1543,9 @@ export default function SellerDashboardPage() {
                   </div>
                   <div className="mt-2">
                     <span className="text-3xl font-extrabold text-white block tracking-tight">
-                      $0.00
+                      {formatUsd(grossSales + retailGrossSales)}
                     </span>
-                    <div className="flex items-center mt-1.5">
-                      <span className="inline-block px-2 py-0.5 rounded-full bg-[#1e3a67] text-blue-200 text-[10px] font-bold">
-                        +0.0%
-                      </span>
-                      <span className="text-xs text-gray-300 ml-2">Turnover from your orders</span>
-                    </div>
+                    <span className="text-xs text-gray-300 mt-1 block">Confirmed sales</span>
                   </div>
                 </div>
 
@@ -1535,8 +1560,8 @@ export default function SellerDashboardPage() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <span className="text-3xl font-extrabold text-gray-900 block">$0.00</span>
-                    <span className="text-xs text-gray-500 mt-1 block">{commissionRate}% package rate</span>
+                    <span className="text-3xl font-extrabold text-gray-900 block">{formatUsd(estimatedProfit)}</span>
+                    <span className="text-xs text-gray-500 mt-1 block">{commissionRate}% current package rate</span>
                   </div>
                 </div>
 
@@ -1554,8 +1579,8 @@ export default function SellerDashboardPage() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <span className="text-3xl font-extrabold text-gray-900 block">$0.00</span>
-                    <span className="text-xs text-gray-500 mt-1 block">Platform credit line</span>
+                    <span className="text-3xl font-extrabold text-gray-900 block">{formatUsd(grantedFunds)}</span>
+                    <span className="text-xs text-gray-500 mt-1 block">{currentTier.name} · Platform credit</span>
                   </div>
                 </div>
               </div>
@@ -1586,18 +1611,23 @@ export default function SellerDashboardPage() {
                   {/* Flow 2: Processing */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-5 text-center shadow-sm">
                     <span className="text-2xl font-bold text-[#2563eb] block">{liveInProgressCount}</span>
-                    <span className="text-xs text-gray-600 block mt-1">Processing</span>
+                    <span className="text-xs text-gray-600 block mt-1">In Process</span>
+                    {processingStages.length > 0 && (
+                      <ul aria-label="Processing stages" className="mt-2 space-y-1 text-xs text-blue-700">
+                        {processingStages.map(({ label, count }) => <li key={label}>{label} · {count}</li>)}
+                      </ul>
+                    )}
                   </div>
 
                   {/* Flow 3: Delivered */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-5 text-center shadow-sm">
-                    <span className="text-2xl font-bold text-[#059669] block">{liveDeliveredCount}</span>
+                    <span className="text-2xl font-bold text-[#059669] block">{flow.delivered}</span>
                     <span className="text-xs text-gray-600 block mt-1">Delivered</span>
                   </div>
 
                   {/* Flow 4: Cancelled */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-5 text-center shadow-sm">
-                    <span className="text-2xl font-bold text-[#64748b] block">0</span>
+                    <span className="text-2xl font-bold text-[#64748b] block">{flow.cancelled}</span>
                     <span className="text-xs text-gray-600 block mt-1">Cancelled</span>
                   </div>
                 </div>
@@ -1670,7 +1700,7 @@ export default function SellerDashboardPage() {
                     <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
                       WALLET BALANCE
                     </span>
-                    <span className="text-2xl font-bold text-emerald-950 mt-1 block">$0.00</span>
+                    <span className="text-2xl font-bold text-emerald-950 mt-1 block">{formatUsd(walletBalance)}</span>
                     <div className="flex items-center gap-2 mt-4">
                       <button
                         onClick={() => setActiveNav('wallet')}

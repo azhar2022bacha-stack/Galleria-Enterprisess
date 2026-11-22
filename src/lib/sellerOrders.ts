@@ -42,6 +42,8 @@ export interface SellerOrderHistoryEntry {
   at: string; // ISO date
 }
 
+export type SellerOrderOutcome = 'Cancelled' | 'Refunded' | 'Rejected';
+
 export interface SellerOrder {
   id: string;
   code: string;
@@ -62,6 +64,7 @@ export interface SellerOrder {
   settlementAdjustmentId?: string;
   paymentMethod: string;
   status: SellerOrderStatus;
+  outcome?: SellerOrderOutcome;
   createdAt: string;
   history: SellerOrderHistoryEntry[];
   sellerEmail?: string;
@@ -266,6 +269,7 @@ function emitChange() {
 
 const CONSIGN_STATUS_TO_SELLER: Record<string, SellerOrderStatus> = {
   'Awaiting payment': 'awaiting_payment',
+  'Paid · awaiting admin confirmation': 'confirmed',
   'Paid · awaiting pickup': 'confirmed',
   'Paid · Escrow secured': 'confirmed',
   'Picked up': 'picked_up',
@@ -296,13 +300,24 @@ function formatLocationFromShipping(
   return fallbackShopName ? `${fallbackShopName} (Consign)` : 'Wholesale Consignment';
 }
 
+function consignOrderStage(order: { status?: string; sellerStatus?: string; sellerPaidAt?: string }): SellerOrderStatus {
+  const reported = order.sellerStatus as SellerOrderStatus;
+  if (reported && reported !== 'awaiting_payment' && ORDER_STATUS_FLOW.includes(reported)) return reported;
+  const stage = CONSIGN_STATUS_TO_SELLER[order.status || ''];
+  if (stage && stage !== 'awaiting_payment') return stage;
+  return order.sellerPaidAt ? 'confirmed' : 'awaiting_payment';
+}
+
+function consignOrderOutcome(order: { status?: string; refund?: { status?: string } }): SellerOrderOutcome | undefined {
+  const status = String(order.status || '').trim().toLowerCase();
+  if (status.startsWith('cancelled') || status.startsWith('canceled')) return 'Cancelled';
+  if (status.startsWith('refunded') || order.refund?.status === 'Refunded') return 'Refunded';
+  if (status.startsWith('rejected')) return 'Rejected';
+  return undefined;
+}
+
 function buildSellerOrderFromConsignRecord(co: any): SellerOrder {
-  const mappedStatus = co.sellerPaidAt
-    ? (co.sellerStatus === 'delivered' ? 'delivered' : co.sellerStatus === 'on_the_way' ? 'on_the_way' : co.sellerStatus === 'picked_up' ? 'picked_up' : 'confirmed')
-    :
-    (co.sellerStatus as SellerOrderStatus) ||
-    CONSIGN_STATUS_TO_SELLER[co.status] ||
-    'awaiting_payment';
+  const mappedStatus = consignOrderStage(co);
   const items =
     Array.isArray(co.products) && co.products.length > 0
       ? co.products
@@ -356,6 +371,7 @@ function buildSellerOrderFromConsignRecord(co: any): SellerOrder {
     ...(co.settlementAdjustmentId ? { settlementAdjustmentId: co.settlementAdjustmentId } : {}),
     paymentMethod: 'Consign Escrow',
     status: mappedStatus,
+    outcome: consignOrderOutcome(co),
     createdAt:
       co.createdAt ||
       (co.date === 'Just now' || !co.date ? new Date().toISOString() : co.date),
@@ -393,23 +409,27 @@ export function getOrders(filterEmail?: string): SellerOrder[] {
               modified = true;
             } else {
               const existing = parsed[existingIdx];
-              const mappedStatus: SellerOrderStatus | undefined = co.sellerPaidAt && co.sellerStatus === 'awaiting_payment'
-                ? 'confirmed'
-                : (co.sellerStatus as SellerOrderStatus) || CONSIGN_STATUS_TO_SELLER[co.status];
+              const mappedStatus = consignOrderStage(co);
+              const outcome = consignOrderOutcome(co);
+              const gross = co.amount;
+              const newAmount = typeof gross === 'number' && Number.isFinite(gross) ? gross : existing.amount;
               const needShippingHydration = !existing.shippingAddress && Boolean(co.shippingAddress);
-              const needStatusSync = mappedStatus && existing.status !== mappedStatus && existing.source === 'consign';
+              const needStatusSync = existing.status !== mappedStatus && (existing.source === 'consign' || existing.consignOrderId === co.id);
               const needPaymentSync = Boolean(
                 existing.sellerPaidAt !== co.sellerPaidAt ||
                 existing.sellerPaidAmount !== co.sellerPaidAmount ||
+                existing.commissionRate !== co.commissionRate ||
                 existing.sellerCommission !== (co.sellerCommission ?? co.commission) ||
                 existing.paymentAdjustmentId !== co.paymentAdjustmentId ||
                 existing.adminConfirmedAt !== co.adminConfirmedAt ||
                 existing.settledAt !== co.settledAt ||
                 existing.settlementAdjustmentId !== co.settlementAdjustmentId
               );
-              if (needShippingHydration || needStatusSync || needPaymentSync) {
+              if (needShippingHydration || needStatusSync || needPaymentSync || outcome !== existing.outcome || newAmount !== existing.amount) {
                 parsed[existingIdx] = {
                   ...existing,
+                  amount: newAmount,
+                  outcome,
                   ...(needShippingHydration
                     ? {
                         shippingAddress: co.shippingAddress,
@@ -423,6 +443,7 @@ export function getOrders(filterEmail?: string): SellerOrder[] {
                       { status: mappedStatus, at: co.updatedAt || new Date().toISOString() },
                     ],
                   } : {}),
+                  ...(co.commissionRate ? { commissionRate: String(co.commissionRate) } : {}),
                   ...(Number.isFinite(Number(co.sellerPaidAmount)) ? { sellerPaidAmount: Number(co.sellerPaidAmount) } : {}),
                   ...(Number.isFinite(Number(co.sellerCommission ?? co.commission)) ? { sellerCommission: Number(co.sellerCommission ?? co.commission) } : {}),
                   ...(co.sellerPaidAt ? { sellerPaidAt: co.sellerPaidAt } : {}),
@@ -575,6 +596,8 @@ export async function syncConsignOrdersFromServer(merchantEmail?: string): Promi
         (srv.refund && cur.refund?.id !== srv.refund.id) ||
         cur.sellerPaidAt !== srv.sellerPaidAt ||
         cur.sellerPaidAmount !== srv.sellerPaidAmount ||
+        cur.amount !== srv.amount ||
+        cur.commissionRate !== srv.commissionRate ||
         cur.sellerCommission !== (srv.sellerCommission ?? srv.commission) ||
         cur.paymentAdjustmentId !== srv.paymentAdjustmentId ||
         cur.adminConfirmedAt !== srv.adminConfirmedAt ||
@@ -689,7 +712,7 @@ export async function syncApprovedRecharges(): Promise<void> {
   } catch {}
 
   try {
-    const response = await fetch(`/api/admin/wallet-adjustments?email=${encodeURIComponent(email)}`, { cache: 'no-store' });
+    const response = await fetch(`/api/seller/wallet-adjustments?email=${encodeURIComponent(email)}`, { cache: 'no-store' });
     if (!response.ok) return;
     const data = await response.json();
     const walletAdjustments = (data.adjustments || []).filter((row: any) => row.accountType === 'wallet');
@@ -1437,7 +1460,7 @@ export async function paySellerOrders(ids: string[]): Promise<{
 
   const currentOrders = getOrders();
   const selectedOrders = currentOrders.filter(
-    (order) => selectedIds.includes(order.id) && order.status === 'awaiting_payment'
+    (order) => selectedIds.includes(order.id) && order.status === 'awaiting_payment' && !order.outcome
   );
   if (selectedOrders.length !== selectedIds.length) {
     return { success: false, error: 'One or more orders are no longer unpaid. Refresh and try again.' };
@@ -1528,6 +1551,9 @@ export async function paySellerOrders(ids: string[]): Promise<{
           ...order,
           status: 'confirmed' as SellerOrderStatus,
           sellerPaidAmount: paymentBreakdowns.get(order.id)!.payable,
+          sellerCommission: paymentBreakdowns.get(order.id)!.commission,
+          commissionRate: paymentBreakdowns.get(order.id)!.commissionRate + '%',
+          sellerPaidAt: now,
           history: [...order.history, { status: 'confirmed' as SellerOrderStatus, at: now }],
         }
       : order

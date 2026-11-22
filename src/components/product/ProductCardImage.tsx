@@ -109,7 +109,7 @@ export function ProductCardImage({
       src={displaySrc}
       alt={alt}
       fill
-      unoptimized
+      unoptimized={displaySrc.startsWith("http:")}
       priority={priority}
       sizes={sizes}
       className={className}

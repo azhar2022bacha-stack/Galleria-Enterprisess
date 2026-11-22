@@ -21,7 +21,7 @@ export function StorefrontCardPurchase({ product, onAdd }: { product: Product; o
         </button>
       </div>
       <div className="mt-2 border-t border-[#eee7dc] pt-2">
-        <ProductRating rating={product.rating} count={product.reviewCount} />
+        <ProductRating productId={product.id} rating={product.rating} count={product.reviewCount} />
       </div>
     </div>
   );

@@ -151,7 +151,7 @@ export default function ProductDetailPage() {
               </div>
               {productImages.length > 1 && <div className="mt-3 flex flex-wrap gap-2">
                 {productImages.map((imageUrl, index) => <button key={`${imageUrl}-${index}`} type="button" onClick={() => setActiveGalleryImage(imageUrl)} aria-label={`View product image ${index + 1}`} aria-pressed={(activeGalleryImage || product.image) === imageUrl} className={`relative h-16 w-16 overflow-hidden rounded-lg border bg-white p-1 ${((activeGalleryImage || product.image) === imageUrl) ? 'border-[#a77e43] ring-1 ring-[#a77e43]' : 'border-[#e9e4da]'}`}>
-                  <Image src={imageUrl} alt={`${product.title} image ${index + 1}`} fill unoptimized sizes="64px" className="object-contain p-1" onError={(event) => event.currentTarget.parentElement?.setAttribute('hidden', 'true')} />
+                  <Image src={imageUrl} alt={`${product.title} image ${index + 1}`} fill unoptimized={imageUrl.startsWith("http:")} sizes="64px" className="object-contain p-1" onError={(event) => event.currentTarget.parentElement?.setAttribute('hidden', 'true')} />
                 </button>)}
               </div>}
             </div>
@@ -177,7 +177,7 @@ export default function ProductDetailPage() {
 
                 <a href="#product-reviews" onClick={() => setActiveTab('reviews')}
                   className="mt-4 inline-flex rounded-sm hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">
-                  <ProductRating rating={reviewRating} count={reviewCount} />
+                  <ProductRating productId={product.id} rating={reviewRating} count={reviewCount} />
                 </a>
 
                 {/* Price */}
@@ -406,7 +406,7 @@ export default function ProductDetailPage() {
                   </Link>
                   <div className="mt-auto flex items-center justify-between gap-1.5 pt-2">
                     <span className="truncate text-xs font-bold text-[#0c1b33] sm:text-sm">${p.price.toFixed(2)}</span>
-                    <span className="shrink-0 text-[8px] text-[#758092]">{p.reviewCount > 0 ? `${p.rating.toFixed(1)} stars` : 'No reviews yet'}</span>
+                    <ProductRating productId={p.id} rating={p.rating} count={p.reviewCount} />
                   </div>
                 </div>
               ))}

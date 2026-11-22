@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Star, Heart, ShoppingBag, ArrowRight } from 'lucide-react';
+import { ProductRating } from '@/components/product/ProductRating';
+import { Heart, ShoppingBag, ArrowRight } from 'lucide-react';
 import { ALL_PRODUCTS } from '@/services/mockData';
 import { STORE_CATEGORIES, type StoreCategoryData } from '@/data/storeCategories';
 import { filterProductsByActiveStoreTaxonomy } from '@/lib/storeCatalog';
@@ -149,16 +150,7 @@ export default function ExtraShoppingSections() {
                   </div>
 
                   <div className="mt-1 flex min-h-4 items-center gap-1 text-[9px] text-[#758092]">
-                    {product.reviewCount > 0 ? (
-                      <>
-                        <div className="flex items-center text-[#b99152]" aria-hidden="true">
-                          {[...Array(5)].map((_, i) => (
-                            <Star key={i} className={`h-2.5 w-2.5 ${i < Math.round(product.rating) ? 'fill-current' : 'fill-transparent'}`} />
-                          ))}
-                        </div>
-                        <span>{product.rating.toFixed(1)} ({product.reviewCount})</span>
-                      </>
-                    ) : <span>No reviews yet</span>}
+                    <ProductRating productId={product.id} rating={product.rating} count={product.reviewCount} />
                   </div>
                 </div>
 

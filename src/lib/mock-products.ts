@@ -1,3 +1,4 @@
+import { getStorehouseSavingsRate, getStorehouseSearchTerms } from '@/lib/storehouseMix';
 import { CURATED_BASE_PRODUCTS } from '@/data/curatedProducts';
 import {
   EXPANSION_CATEGORY_RANGES,
@@ -393,9 +394,9 @@ function matchesPrice(price: number, range: string): boolean {
     case 'under-25':
       return price < 25;
     case '25-50':
-      return price >= 25 && price <= 50;
+      return price >= 25 && price < 50;
     case '50-100':
-      return price >= 50 && price <= 100;
+      return price >= 50 && price < 100;
     case '100-250':
       return price >= 100 && price <= 250;
     case '250-plus':
@@ -431,8 +432,8 @@ export function queryDemoProducts(
     pageSize = 24,
   } = filter;
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
-  const hasTextSearch = normalizedSearch.length > 0;
+  const searchTerms = getStorehouseSearchTerms(searchQuery);
+  const hasTextSearch = searchTerms.length > 0;
   const isAllCategories = category === 'All categories' || !category;
   const hasSubcategoryFilter = subcategory !== 'All' && !!subcategory;
   const hasPriceFilter = priceRange !== 'all';
@@ -462,11 +463,8 @@ export function queryDemoProducts(
         if (status === 'low-stock' && product.status !== 'Low Stock') continue;
       }
       if (hasTextSearch) {
-        const match =
-          product.title.toLowerCase().includes(normalizedSearch) ||
-          product.sku.toLowerCase().includes(normalizedSearch) ||
-          product.brand.toLowerCase().includes(normalizedSearch) ||
-          product.subcategory.toLowerCase().includes(normalizedSearch);
+        const searchable = [product.title, product.sku, product.brand, product.subcategory].join(' ').toLowerCase();
+        const match = searchTerms.every((term) => searchable.includes(term));
         if (!match) continue;
       }
       matches.push(product);
@@ -478,7 +476,7 @@ export function queryDemoProducts(
         case 'price-desc': matches.sort((a, b) => b.price - a.price); break;
         case 'name-asc': matches.sort((a, b) => a.title.localeCompare(b.title)); break;
         case 'name-desc': matches.sort((a, b) => b.title.localeCompare(a.title)); break;
-        case 'discount': matches.sort((a, b) => (b.compareAtPrice - b.price) - (a.compareAtPrice - a.price)); break;
+        case 'discount': matches.sort((a, b) => getStorehouseSavingsRate(b) - getStorehouseSavingsRate(a)); break;
         case 'stock-desc': matches.sort((a, b) => b.stockQuantity - a.stockQuantity); break;
         default: break;
       }
@@ -571,16 +569,13 @@ export function queryDemoProducts(
         if (status === 'low-stock' && p.status !== 'Low Stock') continue;
       }
       if (hasTextSearch) {
-        const match =
-          p.title.toLowerCase().includes(normalizedSearch) ||
-          p.sku.toLowerCase().includes(normalizedSearch) ||
-          p.brand.toLowerCase().includes(normalizedSearch) ||
-          p.subcategory.toLowerCase().includes(normalizedSearch);
+        const searchable = [p.title, p.sku, p.brand, p.subcategory].join(' ').toLowerCase();
+        const match = searchTerms.every((term) => searchable.includes(term));
         if (!match) continue;
       }
 
       matches.push(p);
-      if (matches.length >= maxScan) break outerTierLoop;
+      if (!hasTextSearch && matches.length >= maxScan) break outerTierLoop;
     }
   }
 
@@ -600,7 +595,7 @@ export function queryDemoProducts(
         matches.sort((a, b) => b.title.localeCompare(a.title));
         break;
       case 'discount':
-        matches.sort((a, b) => (b.compareAtPrice - b.price) - (a.compareAtPrice - a.price));
+        matches.sort((a, b) => getStorehouseSavingsRate(b) - getStorehouseSavingsRate(a));
         break;
       case 'stock-desc':
         matches.sort((a, b) => b.stockQuantity - a.stockQuantity);

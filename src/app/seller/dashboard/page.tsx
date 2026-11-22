@@ -1783,7 +1783,6 @@ export default function SellerDashboardPage() {
               onAddToShop={handleAddDemoProductToShop}
               onRemoveFromShop={handleRemoveProductFromShop}
               onAddMultipleToShop={handleAddMultipleDemoProductsToShop}
-              onAddAllToShop={handleAddAllDemoProductsToShop}
               notify={notify}
             />
           )}

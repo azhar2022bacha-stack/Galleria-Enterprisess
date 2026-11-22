@@ -13,6 +13,8 @@ import {
 import { queryDemoProducts, getProductById } from '@/lib/mock-products';
 import {
   HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS,
+  getStorehouseSavingsRate,
+  getStorehouseSearchTerms,
   type StorehouseMixFilters,
   type StorehouseMixPage,
 } from '@/lib/storehouseMix';
@@ -94,7 +96,6 @@ interface StorehouseCatalogProps {
   onAddToShop: (product: DemoProduct) => void;
   onRemoveFromShop?: (productId: string) => void;
   onAddMultipleToShop?: (products: DemoProduct[]) => void;
-  onAddAllToShop: (excludedCategorySlugs?: string[]) => void;
   notify: (msg: string) => void;
 }
 
@@ -113,12 +114,11 @@ async function requestStorehouseMix(
   pageSize: number,
   snapshotId: string | undefined,
   signal: AbortSignal,
-  bulk?: { bulkLimit: number; bulkExcludedIds: string[] },
 ): Promise<StorehouseMixPage> {
   const response = await fetch('/api/storehouse/catalog?view=mixed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...filters, page, pageSize, snapshotId, ...bulk }),
+    body: JSON.stringify({ ...filters, page, pageSize, snapshotId }),
     cache: 'no-store',
     signal,
   });
@@ -200,7 +200,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   onAddToShop,
   onRemoveFromShop,
   onAddMultipleToShop,
-  onAddAllToShop,
   notify,
 }) => {
   // ---------------------------------------------------------------------------
@@ -227,18 +226,17 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   const [mixedLoadError, setMixedLoadError] = useState('');
   const [mixedRefresh, setMixedRefresh] = useState(0);
   const mixedSnapshot = useRef<{ filters: StorehouseMixFilters; id: string } | null>(null);
-  const mixedBulkRequest = useRef<AbortController | null>(null);
   const categoryPrefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isAddingMixedProducts, setIsAddingMixedProducts] = useState(false);
   const isAllCategories = selectedCategory === 'All categories';
   const mixedExcludedIds = hideAdded ? addedStorehouseIds : undefined;
   const mixedFilters = useMemo<StorehouseMixFilters>(() => ({
     searchQuery: debouncedSearch,
+    subcategory: selectedSubcategory === 'All' ? undefined : selectedSubcategory,
     priceRange,
     status: statusFilter,
     sortBy,
     excludedIds: mixedExcludedIds,
-  }), [debouncedSearch, mixedExcludedIds, priceRange, sortBy, statusFilter]);
+  }), [debouncedSearch, mixedExcludedIds, priceRange, selectedSubcategory, sortBy, statusFilter]);
 
   // Modal detail preview state
   const [modalProduct, setModalProduct] = useState<DemoProduct | null>(null);
@@ -299,7 +297,11 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     );
   }, [catalogCategories, selectedCategory]);
 
-  const availableSubcategories = activeCategoryDefinition?.subcategories || [];
+  const availableSubcategories = useMemo(() => activeCategoryDefinition?.subcategories
+    ?? Array.from(new Set(catalogCategories
+      .filter(({ slug }) => !HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS.has(slug) && feedCategories.some((category) => category.slug === slug))
+      .flatMap((category) => category.subcategories))).sort((a, b) => a.localeCompare(b)),
+  [activeCategoryDefinition, catalogCategories, feedCategories]);
 
   const refreshMixedCatalog = () => {
     mixedSnapshot.current = null;
@@ -352,10 +354,10 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     if (selectedCategory !== 'All categories' && !catalogCategories.some((category) => category.name === selectedCategory)) {
       setSelectedCategory('All categories');
       setSelectedSubcategory('All');
-    } else if (activeCategoryDefinition && selectedSubcategory !== 'All' && !activeCategoryDefinition.subcategories.includes(selectedSubcategory)) {
+    } else if (selectedSubcategory !== 'All' && !availableSubcategories.includes(selectedSubcategory)) {
       setSelectedSubcategory('All');
     }
-  }, [activeCategoryDefinition, catalogCategories, selectedCategory, selectedSubcategory]);
+  }, [availableSubcategories, catalogCategories, selectedCategory, selectedSubcategory]);
 
   // ---------------------------------------------------------------------------
   // Query the demo catalog only for the individual categories that use it.
@@ -421,7 +423,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     return () => controller.abort();
   }, [isAllCategories, mixedFilters, mixedRefresh, page, pageSize]);
 
-  useEffect(() => () => mixedBulkRequest.current?.abort(), []);
 
   const [persistedCategoryData, setPersistedCategoryData] = useState<{
     category: string;
@@ -574,12 +575,12 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
 
   const filteredVerifiedProducts = useMemo(() => {
     if (!isManagedImportCategory || persistedCategoryData?.category !== selectedCategory) return [];
-    const normalizedSearch = debouncedSearch.trim().toLowerCase();
+    const searchTerms = getStorehouseSearchTerms(debouncedSearch);
     const matchesPrice = (price: number) => {
       switch (priceRange) {
         case 'under-25': return price < 25;
-        case '25-50': return price >= 25 && price <= 50;
-        case '50-100': return price >= 50 && price <= 100;
+        case '25-50': return price >= 25 && price < 50;
+        case '50-100': return price >= 50 && price < 100;
         case '100-250': return price >= 100 && price <= 250;
         case '250-plus': return price > 250;
         default: return true;
@@ -591,9 +592,9 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       if (statusFilter === 'in-stock' && product.status !== 'In Stock') return false;
       if (statusFilter === 'low-stock' && product.status !== 'Low Stock') return false;
       if (hideAdded && addedStorehouseIds.includes(product.id)) return false;
-      if (normalizedSearch) {
+      if (searchTerms.length) {
         const searchable = `${product.title} ${product.sku} ${product.brand} ${product.subcategory}`.toLowerCase();
-        if (!searchable.includes(normalizedSearch)) return false;
+        if (!searchTerms.every((term) => searchable.includes(term))) return false;
       }
       return true;
     });
@@ -603,7 +604,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       case 'price-desc': matches.sort((a, b) => b.price - a.price); break;
       case 'name-asc': matches.sort((a, b) => a.title.localeCompare(b.title)); break;
       case 'name-desc': matches.sort((a, b) => b.title.localeCompare(a.title)); break;
-      case 'discount': matches.sort((a, b) => (b.compareAtPrice - b.price) - (a.compareAtPrice - a.price)); break;
+      case 'discount': matches.sort((a, b) => getStorehouseSavingsRate(b) - getStorehouseSavingsRate(a)); break;
       case 'stock-desc': matches.sort((a, b) => b.stockQuantity - a.stockQuantity); break;
       default: break;
     }
@@ -745,62 +746,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     );
   };
 
-  const addMixedCatalogProducts = async () => {
-    if (mixedBulkRequest.current || remainingSlots <= 0) return;
-    const controller = new AbortController();
-    mixedBulkRequest.current = controller;
-    setIsAddingMixedProducts(true);
-    try {
-      const filters = mixedFilters;
-      const snapshotId = mixedSnapshot.current?.filters === filters ? mixedSnapshot.current.id : undefined;
-      const result = await requestStorehouseMix(filters, 1, pageSize, snapshotId, controller.signal, {
-        bulkLimit: remainingSlots,
-        bulkExcludedIds: addedStorehouseIds,
-      });
-      const eligible = result.products;
-      if (controller.signal.aborted) return;
-      if (!eligible.length) {
-        notify('There are no new Storehouse products to add.');
-        return;
-      }
-      const toAdd = eligible.slice(0, remainingSlots);
-      if (onAddMultipleToShop) onAddMultipleToShop(toAdd);
-      else toAdd.forEach(onAddToShop);
-    } catch (error) {
-      if (!controller.signal.aborted) notify(error instanceof Error ? error.message : 'Could not load products to add.');
-    } finally {
-      mixedBulkRequest.current = null;
-      if (!controller.signal.aborted) setIsAddingMixedProducts(false);
-    }
-  };
-
-  const handleAddAllCurrentCatalog = () => {
-    if (isAllCategories) {
-      void addMixedCatalogProducts();
-      return;
-    }
-    if (isClearedDemoCategory) {
-      notify('There are no products in this category to add.');
-      return;
-    }
-    if (!isManagedImportCategory) {
-      onAddAllToShop(Array.from(CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS));
-      return;
-    }
-    const addedIds = new Set(addedStorehouseIds);
-    const eligible = filteredVerifiedProducts
-      .filter((product) => !addedIds.has(product.id))
-      .slice(0, remainingSlots);
-    if (!eligible.length) {
-      notify(remainingSlots <= 0
-        ? `Limit reached: ${packageName} allows up to ${planLimit} products.`
-        : 'There are no new products in this category to add.');
-      return;
-    }
-    if (onAddMultipleToShop) onAddMultipleToShop(eligible);
-    else eligible.forEach(onAddToShop);
-  };
-
   // Reset all filters
   const handleResetFilters = () => {
     setSearchInput('');
@@ -839,7 +784,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   const startItem = totalCount === 0 || (isAllCategories && !pageProducts.length) ? 0 : (page - 1) * pageSize + 1;
   const endItem = startItem === 0 ? 0 : Math.min(totalCount, page * pageSize);
   const productLoadError = isAllCategories ? mixedLoadError : catalogLoadError;
-  const isAddAllDisabled = remainingSlots <= 0 || isAddingMixedProducts;
 
   // Generate pagination numbers sliding window
   const paginationRange = useMemo(() => {
@@ -870,10 +814,11 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              type="text"
+              type="search"
+              aria-label="Search Storehouse products"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder={hasLoadedCategoryCounts ? `Search ${categoryCatalogTotal.toLocaleString()} products by title or brand...` : 'Search products by title or brand...'}
+              placeholder={isAllCategories && hasLoadedCategoryCounts ? `Search ${categoryCatalogTotal.toLocaleString()} products by title or brand...` : 'Search products by title or brand...'}
               className="w-full pl-10 pr-9 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#cca23b] focus:bg-white transition-all shadow-inner"
             />
             {searchInput && (
@@ -928,25 +873,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
               <span>Hide added</span>
             </label>
 
-            {/* "Add all to My Products" Button */}
-            <button
-              onClick={handleAddAllCurrentCatalog}
-              disabled={isAddAllDisabled}
-              className={`px-4 py-2 font-bold text-xs rounded-lg shadow-sm transition-colors flex items-center gap-1.5 border ${
-                isAddAllDisabled
-                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                  : 'bg-[#071324] hover:bg-[#11233b] text-white border-[#162740]'
-              }`}
-              title={
-                remainingSlots <= 0
-                  ? `Product limit reached (${planLimit}/${planLimit})`
-                  : `Add all eligible products to My Products up to ${planLimit}`
-              }
-            >
-              <Plus className={`w-3.5 h-3.5 ${isAddAllDisabled ? 'text-gray-400' : 'text-[#cca23b]'}`} />
-              <span>{isAddingMixedProducts ? 'Loading products…' : 'Add all to My Products'}</span>
-            </button>
-
             {/* "Add Selected" Button (when products are selected) */}
             {selectedProductIds.length > 0 && (
               <button
@@ -976,7 +902,6 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
                 setSelectedSubcategory(e.target.value);
                 setPage(1);
               }}
-              disabled={selectedCategory === 'All categories'}
               className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-[#cca23b] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="All">All Subcategories</option>
@@ -1006,7 +931,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
               <option value="25-50">$25 to $50</option>
               <option value="50-100">$50 to $100</option>
               <option value="100-250">$100 to $250</option>
-              <option value="250-plus">$250 and above</option>
+              <option value="250-plus">Over $250</option>
             </select>
           </div>
 

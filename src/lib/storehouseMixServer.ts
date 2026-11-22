@@ -11,6 +11,8 @@ import {
   HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS,
   STOREHOUSE_MIX_BATCH_SIZE,
   STOREHOUSE_MIX_LIMIT,
+  getStorehouseSavingsRate,
+  getStorehouseSearchTerms,
   type StorehouseMixFilters,
   type StorehouseMixPage,
 } from '@/lib/storehouseMix';
@@ -33,14 +35,14 @@ type MixSnapshot = {
   selection: Promise<{ entries: MixEntry[]; fingerprint: string }>;
 };
 
-type PriceBounds = { min?: number; max?: number; exclusive?: boolean };
+type PriceBounds = { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean };
 const PRICE_BOUNDS: Record<PriceRangeFilter, PriceBounds> = {
   all: {},
-  'under-25': { max: 25, exclusive: true },
-  '25-50': { min: 25, max: 50 },
-  '50-100': { min: 50, max: 100 },
+  'under-25': { max: 25, maxExclusive: true },
+  '25-50': { min: 25, max: 50, maxExclusive: true },
+  '50-100': { min: 50, max: 100, maxExclusive: true },
   '100-250': { min: 100, max: 250 },
-  '250-plus': { min: 250, exclusive: true },
+  '250-plus': { min: 250, minExclusive: true },
 };
 const SORT_OPTIONS: SortOption[] = ['default', 'name-asc', 'name-desc', 'price-asc', 'price-desc', 'discount', 'stock-desc'];
 const STOCK_LABELS: Record<StorehouseMixFilters['status'], string> = {
@@ -70,6 +72,7 @@ function parseFilters(body: Record<string, unknown>): StorehouseMixFilters {
       : 'all',
     status: body.status === 'in-stock' || body.status === 'low-stock' ? body.status : 'all',
     sortBy: SORT_OPTIONS.includes(body.sortBy as SortOption) ? body.sortBy as SortOption : 'default',
+    subcategory: typeof body.subcategory === 'string' ? body.subcategory.trim().toLowerCase().slice(0, 200) : '',
     excludedIds: Array.isArray(body.excludedIds)
       ? [...new Set(body.excludedIds.slice(0, STOREHOUSE_MIX_LIMIT).filter(
         (id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 100
@@ -96,6 +99,7 @@ function createFallbackCandidates(
   const excluded = new Set(filters.excludedIds);
   const bounds = PRICE_BOUNDS[filters.priceRange];
   const status = STOCK_LABELS[filters.status];
+  const searchTerms = getStorehouseSearchTerms(filters.searchQuery);
   const candidates: Candidate[] = [];
 
   for (const entry of products) {
@@ -105,17 +109,18 @@ function createFallbackCandidates(
     if (!categories.has(categorySlug) || excluded.has(entry.product_id)) continue;
     if (visibility.deletedSubcategories[categorySlug]?.includes(entry.subcategory_slug)
       || visibility.deletedSubcategories[entry.category_slug]?.includes(entry.subcategory_slug)) continue;
-    if (bounds.min !== undefined && (bounds.exclusive ? product.price <= bounds.min : product.price < bounds.min)) continue;
-    if (bounds.max !== undefined && (bounds.exclusive ? product.price >= bounds.max : product.price > bounds.max)) continue;
+    if (bounds.min !== undefined && (bounds.minExclusive ? product.price <= bounds.min : product.price < bounds.min)) continue;
+    if (bounds.max !== undefined && (bounds.maxExclusive ? product.price >= bounds.max : product.price > bounds.max)) continue;
     if (status && product.status !== status) continue;
-    if (filters.searchQuery && ![product.title, product.sku, product.brand, product.subcategory]
-      .join(' ').toLowerCase().includes(filters.searchQuery)) continue;
+    if (filters.subcategory && product.subcategory?.trim().toLowerCase() !== filters.subcategory) continue;
+    const searchable = [product.title, product.sku, product.brand, product.subcategory].join(' ').toLowerCase();
+    if (!searchTerms.every((term) => searchable.includes(term))) continue;
 
     let sortNumber = 0;
     switch (filters.sortBy) {
       case 'price-asc': sortNumber = product.price; break;
       case 'price-desc': sortNumber = -product.price; break;
-      case 'discount': sortNumber = product.price - product.compareAtPrice; break;
+      case 'discount': sortNumber = -getStorehouseSavingsRate(product); break;
       case 'stock-desc': sortNumber = -product.stockQuantity; break;
     }
     const sku = entry.sku_key.trim().toUpperCase() || product.sku?.trim().toUpperCase();
@@ -152,7 +157,7 @@ function selectFallbackMix(candidates: Candidate[], sortBy: SortOption): MixEntr
     } else {
       unique.sort((a, b) => a.sort_number - b.sort_number);
     }
-    return unique.slice(0, STOREHOUSE_MIX_LIMIT);
+    return unique;
   }
 
   const groups = new Map<string, Candidate[]>();
@@ -163,10 +168,9 @@ function selectFallbackMix(candidates: Candidate[], sortBy: SortOption): MixEntr
   }
   let activeGroups = [...groups.keys()].sort().map((category) => groups.get(category)!);
   const mixed: MixEntry[] = [];
-  for (let rank = 0; activeGroups.length && mixed.length < STOREHOUSE_MIX_LIMIT; rank += 1) {
+  for (let rank = 0; activeGroups.length; rank += 1) {
     for (const group of activeGroups) {
       mixed.push(group[rank]);
-      if (mixed.length === STOREHOUSE_MIX_LIMIT) break;
     }
     activeGroups = activeGroups.filter((group) => group.length > rank + 1);
   }
@@ -200,16 +204,20 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
     conditions.push(`NOT (COALESCE(${deleted}::jsonb -> ${categorySlug}, '[]'::jsonb) ? ${subcategory})`);
   }
   const bounds = PRICE_BOUNDS[filters.priceRange];
-  if (bounds.min !== undefined) conditions.push('product.price ' + (bounds.exclusive ? '> ' : '>= ') + addParam(bounds.min));
-  if (bounds.max !== undefined) conditions.push('product.price ' + (bounds.exclusive ? '< ' : '<= ') + addParam(bounds.max));
+  if (bounds.min !== undefined) conditions.push('product.price ' + (bounds.minExclusive ? '> ' : '>= ') + addParam(bounds.min));
+  if (bounds.max !== undefined) conditions.push('product.price ' + (bounds.maxExclusive ? '< ' : '<= ') + addParam(bounds.max));
   if (filters.status !== 'all') conditions.push("product.product_data->>'status' = " + addParam(STOCK_LABELS[filters.status]));
-  if (filters.searchQuery) {
-    conditions.push("strpos(lower(concat_ws(' ', product.product_data->>'title', product.product_data->>'sku', product.product_data->>'brand', product.subcategory_name)), "
-      + addParam(filters.searchQuery) + ') > 0');
+  if (filters.subcategory) {
+    conditions.push("lower(btrim(product.subcategory_name)) = " + addParam(filters.subcategory));
+  }
+  const searchable = "lower(concat_ws(' ', product.product_data->>'title', product.product_data->>'sku', product.product_data->>'brand', product.subcategory_name))";
+  for (const term of getStorehouseSearchTerms(filters.searchQuery)) {
+    conditions.push('strpos(' + searchable + ', ' + addParam(term) + ') > 0');
   }
   const numericField = (key: 'compareAtPrice' | 'stockQuantity') =>
     `CASE WHEN jsonb_typeof(product.product_data->'${key}') = 'number'
       THEN (product.product_data->>'${key}')::numeric ELSE 0 END`;
+  const compareAtPrice = numericField('compareAtPrice');
   let sortName = 'NULL::text';
   let sortNumber = '0::numeric';
   let order = 'sort_number';
@@ -224,7 +232,7 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
       break;
     case 'price-asc': sortNumber = 'product.price'; break;
     case 'price-desc': sortNumber = '-product.price'; break;
-    case 'discount': sortNumber = 'product.price - (' + numericField('compareAtPrice') + ')'; break;
+    case 'discount': sortNumber = `CASE WHEN ${compareAtPrice} > 0 THEN LEAST(0, product.price / ${compareAtPrice} - 1) ELSE 0 END`; break;
     case 'stock-desc': sortNumber = '-(' + numericField('stockQuantity') + ')'; break;
   }
 
@@ -263,8 +271,7 @@ async function createSelection(filters: StorehouseMixFilters, visibility: Visibi
     )
     SELECT id, is_fallback
     FROM by_title
-    ORDER BY ${order}, id
-    LIMIT ${STOREHOUSE_MIX_LIMIT}`, params);
+    ORDER BY ${order}, id`, params);
   if (!result) {
     if (fallbackProducts.length) return selectFallbackMix(fallback, filters.sortBy);
     throw new Error(UNAVAILABLE);

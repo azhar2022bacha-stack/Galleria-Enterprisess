@@ -18,6 +18,8 @@ export interface SellerConfirmedOrder {
   commissionRate?: string;
   status?: string;
   sellerStatus?: string;
+  sellerPaidAt?: string;
+  paymentAdjustmentId?: string;
   date?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -120,7 +122,7 @@ export function AdminConfirmSellerOrdersView({
         Number.isFinite(price) ? formatCurrency((Math.round(price * 100) * quantity) / 100) : '',
       ];
     });
-    const dateSearch = [order.updatedAt, order.createdAt, order.date]
+    const dateSearch = [order.sellerPaidAt, order.updatedAt, order.createdAt, order.date]
       .filter(Boolean)
       .flatMap((value) => [value, formatDate(value), new Date(value as string).toLocaleDateString('en-US')]);
     const searchableText = [
@@ -293,7 +295,7 @@ export function AdminConfirmSellerOrdersView({
                   </div>
                   <div>
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Seller confirmed</span>
-                    <span className="mt-0.5 block text-gray-800">{formatDate(order.updatedAt || order.createdAt || order.date)}</span>
+                    <span className="mt-0.5 block text-gray-800">{formatDate(order.sellerPaidAt || order.updatedAt || order.createdAt || order.date)}</span>
                   </div>
                 </div>
 

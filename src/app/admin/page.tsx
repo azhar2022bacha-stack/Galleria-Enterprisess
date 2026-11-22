@@ -18,6 +18,19 @@ function sameTodoCounts(left: AdminTodoCounts, right: AdminTodoCounts): boolean 
   return (Object.keys(left) as (keyof AdminTodoCounts)[]).every((key) => left[key] === right[key]);
 }
 
+function isSellerConfirmedOrder(order: SellerConfirmedOrder): boolean {
+  const sellerStatus = String(order.sellerStatus || '').trim().toLowerCase().replace(/[ _-]+/g, ' ');
+  const status = String(order.status || '').trim().toLowerCase();
+  const pastConfirmation = /^(?:cancel+ed|refund|reject|exception|picked up|shipped|on the way|received|settled|delivered)/;
+  if (pastConfirmation.test(status) || pastConfirmation.test(sellerStatus)) return false;
+  if (sellerStatus === 'confirmed' || /^paid\b/.test(status)) return true;
+  return Boolean(order.sellerPaidAt || order.paymentAdjustmentId);
+}
+
+function sellerConfirmationTime(order: SellerConfirmedOrder): number {
+  return Date.parse(order.sellerPaidAt || order.updatedAt || order.createdAt || order.date || '') || 0;
+}
+
 function sameSellerConfirmations(left: SellerConfirmedOrder[], right: SellerConfirmedOrder[]): boolean {
   return left.length === right.length && left.every((order, index) =>
     JSON.stringify(order) === JSON.stringify(right[index])
@@ -351,25 +364,23 @@ export default function AdminPage() {
     }, 3500);
   };
 
+  const viewingSellerConfirmations = activeTab === 'confirm_order_by_seller';
   useEffect(() => {
-    let cancelled = false;
+    if (!authVerified) return;
+    const controller = new AbortController();
     let requestInFlight = false;
     const refreshSellerConfirmations = async () => {
       if (requestInFlight || document.visibilityState === 'hidden') return;
       requestInFlight = true;
       try {
-        const response = await fetch('/api/consign/orders', { cache: 'no-store' });
+        const response = await fetch('/api/consign/orders', { cache: 'no-store', signal: controller.signal });
         if (!response.ok) return;
         const data = await response.json();
         if (!data?.success || !Array.isArray(data.orders)) return;
         const confirmed = (data.orders as SellerConfirmedOrder[])
-          .filter((order) => {
-            const sellerStatus = String(order.sellerStatus || '').trim().toLowerCase();
-            const status = String(order.status || '').trim().toLowerCase();
-            return sellerStatus === 'confirmed' || (!sellerStatus && status.startsWith('paid') && status.includes('awaiting pickup'));
-          })
-          .sort((left, right) => Date.parse(String(right.updatedAt || right.createdAt || right.date || '')) - Date.parse(String(left.updatedAt || left.createdAt || left.date || '')));
-        if (cancelled) return;
+          .filter(isSellerConfirmedOrder)
+          .sort((left, right) => sellerConfirmationTime(right) - sellerConfirmationTime(left));
+        if (controller.signal.aborted) return;
         const currentIds = new Set(confirmed.map((order) => order.id));
         const previousIds = seenSellerConfirmedOrderIds.current;
         if (previousIds) {
@@ -392,20 +403,20 @@ export default function AdminPage() {
     };
 
     void refreshSellerConfirmations();
-    const intervalId = window.setInterval(() => void refreshSellerConfirmations(), 30_000);
+    const intervalId = window.setInterval(() => void refreshSellerConfirmations(), viewingSellerConfirmations ? 10_000 : 30_000);
     window.addEventListener('storage', refreshSellerConfirmations);
     window.addEventListener('focus', refreshSellerConfirmations);
     window.addEventListener('galleria:seller-orders-changed', refreshSellerConfirmations);
     document.addEventListener('visibilitychange', refreshSellerConfirmations);
     return () => {
-      cancelled = true;
+      controller.abort();
       window.clearInterval(intervalId);
       window.removeEventListener('storage', refreshSellerConfirmations);
       window.removeEventListener('focus', refreshSellerConfirmations);
       window.removeEventListener('galleria:seller-orders-changed', refreshSellerConfirmations);
       document.removeEventListener('visibilitychange', refreshSellerConfirmations);
     };
-  }, []);
+  }, [authVerified, viewingSellerConfirmations]);
 
   const markAllSellerConfirmationsRead = () => {
     const nextReadIds = Array.from(new Set([...readSellerConfirmedOrderIds, ...sellerConfirmedOrders.map((order) => order.id)]));

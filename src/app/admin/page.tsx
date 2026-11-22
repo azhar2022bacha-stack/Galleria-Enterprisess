@@ -9,6 +9,7 @@ import { AdminHeader } from '@/components/admin/AdminHeader';
 import type { SellerConfirmedOrder } from '@/components/admin/AdminConfirmSellerOrdersView';
 import { EMPTY_ADMIN_TODO_COUNTS, fetchAdminTodoCounts, totalAdminTodoCount } from '@/lib/adminTodoCounts';
 import type { AdminTodoCounts } from '@/lib/adminTodoCounts';
+import { fetchConsignMerchants } from '@/lib/consignMerchants';
 import { installAdminAuditTracking, recordAdminActivity } from '@/lib/adminAuditClient';
 
 const SELLER_CONFIRMATION_READ_IDS_KEY = 'galleria_admin_seller_confirmations_read_v1';
@@ -165,6 +166,10 @@ export default function AdminPage() {
   const sellerConfirmedUnreadCount = sellerConfirmedOrders.filter((order) => !readSellerConfirmedOrderIds.includes(order.id)).length;
 
   useEffect(() => installAdminAuditTracking(), []);
+
+  useEffect(() => {
+    if (authVerified && currentAdminEmail) void fetchConsignMerchants(currentAdminEmail).catch(() => {});
+  }, [authVerified, currentAdminEmail]);
 
   useEffect(() => {
     const sidebar = document.querySelector('[data-admin-sidebar]');
@@ -655,6 +660,8 @@ export default function AdminPage() {
             <AdminAccountsView notify={notify} />
           ) : activeTab === 'consign' || activeTab === 'consign_product_queries' ? (
             <AdminConsignView
+              key={currentAdminEmail}
+              adminEmail={currentAdminEmail}
               notify={notify}
               initialTab={activeTab === 'consign_product_queries' ? 'product_queries' : 'consign'}
             />

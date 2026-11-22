@@ -840,6 +840,23 @@ function formatSellerDate(dateVal?: string | Date): { joinedDate: string; create
   }
 }
 
+export async function getConsignMerchantDirectory() {
+  const result = await dbQuery<{ id: number; full_name: string; email: string; shop_name: string }>(
+    'SELECT id, full_name, email, shop_name FROM sellers ORDER BY id DESC'
+  );
+  const sellers = new Map<string, { id: string; name: string; fullName: string; email: string }>();
+  const addSeller = (id: string, email: string, shopName: string, fullName: string) => {
+    const key = email?.trim().toLowerCase();
+    if (key && !sellers.has(key)) sellers.set(key, { id, email: key, name: shopName || fullName || key, fullName });
+  };
+  for (const row of result?.rows ?? []) addSeller(`seller-db-${row.id}`, row.email, row.shop_name, row.full_name);
+  for (const seller of readDiskSellers()) {
+    addSeller(seller.id ? String(seller.id) : `seller-${seller.email}`, seller.email, seller.shopName, seller.fullName);
+  }
+  const products = readAllSellerProductsMap();
+  return [...sellers.values()].map((seller) => ({ ...seller, productsCount: products[seller.email]?.length ?? 0 }));
+}
+
 /**
  * Fetch all registered shops / owners dynamically from PostgreSQL and disk mirror
  */

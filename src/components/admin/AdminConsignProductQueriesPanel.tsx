@@ -102,6 +102,7 @@ function normalizeProduct(product: any, fallbackId: string): ProductChoice | nul
 export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: AdminConsignProductQueriesPanelProps) {
   const [selectedSellerEmail, setSelectedSellerEmail] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
+  const [sellerProducts, setSellerProducts] = useState<{ email: string; products: unknown[] }>();
   const [customProductName, setCustomProductName] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [topic, setTopic] = useState(QUERY_TOPICS[0]);
@@ -132,6 +133,22 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
     }
   }, [selectedSellerEmail, sellersWithEmail]);
 
+  useEffect(() => {
+    const email = selectedSeller?.email;
+    if (!email) return;
+    const controller = new AbortController();
+    fetch('/api/seller/products?email=' + encodeURIComponent(email), { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!controller.signal.aborted && data.success && Array.isArray(data.products)) {
+          setSellerProducts({ email, products: data.products });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [selectedSeller?.email]);
+
   const sellerOrders = useMemo(() => {
     if (!selectedSeller) return [];
     const sellerEmail = String(selectedSeller.email || '').trim().toLowerCase();
@@ -145,7 +162,8 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
   const productChoices = useMemo(() => {
     if (!selectedSeller) return [];
     const choices: ProductChoice[] = [];
-    (Array.isArray(selectedSeller.products) ? selectedSeller.products : []).forEach((product, index) => {
+    const stock = sellerProducts && sellerProducts.email === selectedSeller.email ? sellerProducts.products : [];
+    stock.forEach((product, index) => {
       const normalized = normalizeProduct(product, `seller-product-${index}`);
       if (normalized) choices.push(normalized);
     });
@@ -164,7 +182,7 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
       if (!unique.has(key)) unique.set(key, product);
     });
     return Array.from(unique.values());
-  }, [selectedSeller, sellerOrders]);
+  }, [selectedSeller, sellerOrders, sellerProducts]);
 
   const selectedProduct = productChoices.find((product) => product.id === selectedProductId);
   const selectedOrder = sellerOrders.find((order) => order.id === selectedOrderId);

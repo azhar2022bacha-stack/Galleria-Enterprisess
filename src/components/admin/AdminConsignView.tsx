@@ -40,6 +40,7 @@ import {
 import { AdminSellerTrackerView } from './AdminSellerTrackerView';
 import { AdminConsignProductQueriesPanel } from './AdminConsignProductQueriesPanel';
 import { recordAdminActivity } from '@/lib/adminAuditClient';
+import { fetchConsignMerchants, getCachedConsignMerchants } from '@/lib/consignMerchants';
 import { CONSIGN_CATALOG_PAGE_SIZE } from '@/lib/productFeed';
 import { DisputeProductUnreadBadge, getDisputeProductUnreadCount, useDisputeProductUnread } from '@/components/disputes/DisputeUnreadBadge';
 
@@ -150,23 +151,7 @@ function hasSellerPaidConsignOrder(order: ConsignOrder): boolean {
     status.startsWith('received') ||
     status.startsWith('settled');
 }
-// Strictly real database accounts only - no mock accounts
-const DB_MERCHANTS: ConsignMerchant[] = [
-  {
-    id: 'seller-disk-1',
-    name: 'Azhar uddin',
-    email: 'azhar2022bacha@gmail.com',
-    balance: 0.0,
-    productsCount: 300,
-  },
-  {
-    id: 'seller-disk-2',
-    name: 'Wajeed ullah',
-    email: 'wajeed@gmail.com',
-    balance: 0.0,
-    productsCount: 300,
-  },
-];
+const EMPTY_MERCHANT: ConsignMerchant = { id: '', name: 'Select a merchant', balance: 0 };
 
 type ConsignCatalogPage = { products: ConsignProduct[]; categories: string[]; totalCount: number };
 const EMPTY_CONSIGN_CATALOG: ConsignCatalogPage = { products: [], categories: [], totalCount: 0 };
@@ -175,11 +160,12 @@ const EMPTY_CONSIGN_CATALOG: ConsignCatalogPage = { products: [], categories: []
 const INITIAL_CONSIGN_ORDERS: ConsignOrder[] = [];
 
 interface AdminConsignViewProps {
+  adminEmail: string;
   notify?: (msg: string) => void;
   initialTab?: 'consign' | 'seller_tracker' | 'product_queries';
 }
 
-export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsignViewProps) {
+export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }: AdminConsignViewProps) {
   const disputeProductCounts = useDisputeProductUnread('admin');
   const workflowId = useRef(`CON-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`).current;
   const [activeConsignTab, setActiveConsignTab] = useState<'consign' | 'seller_tracker' | 'product_queries'>(initialTab);
@@ -201,8 +187,10 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     });
   }, [activeConsignTab, workflowId]);
   // Screen 1: Merchant Selection - only real database accounts
-  const [merchants, setMerchants] = useState<ConsignMerchant[]>(DB_MERCHANTS);
-  const [selectedMerchantId, setSelectedMerchantId] = useState<string>('seller-disk-1');
+  const [merchants, setMerchants] = useState(() => getCachedConsignMerchants(adminEmail));
+  const [merchantError, setMerchantError] = useState('');
+  const [selectedMerchantId, setSelectedMerchantId] = useState('');
+  const [merchantProducts, setMerchantProducts] = useState<{ email: string; products: any[] }>();
   const [isMerchantDropdownOpen, setIsMerchantDropdownOpen] = useState(false);
   const menuId = useDismissMenusOnOutsideClick(isMerchantDropdownOpen, () => setIsMerchantDropdownOpen(false));
 
@@ -263,103 +251,44 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     return [];
   };
 
-  // Dynamically load all registered sellers into Consign Merchants
+  const refreshMerchants = React.useCallback(() => {
+    setMerchantError('');
+    void fetchConsignMerchants(adminEmail).then(setMerchants).catch(() => setMerchantError('Could not load registered sellers.'));
+  }, [adminEmail]);
+
   useEffect(() => {
-    const fetchMerchants = async () => {
-      try {
-        const ownersRes = await fetch('/api/admin/owners');
-        let dynamicOwners: any[] = [];
-        if (ownersRes.ok) {
-          const data = await ownersRes.json();
-          if (data.success && Array.isArray(data.owners)) {
-            dynamicOwners = data.owners;
-          }
-        }
-
-        // Process Merchants:
-        if (dynamicOwners.length > 0) {
-          const dynamicMerchants: ConsignMerchant[] = dynamicOwners.map((owner: any) => {
-            let localProducts: any[] = owner.products || [];
-            const storedLocal = readLocalSellerProducts(owner.email);
-            if (storedLocal.length > 0 && (!localProducts || localProducts.length < storedLocal.length)) {
-              localProducts = storedLocal;
-            }
-            const count = Math.max(owner.productsCount || 0, localProducts.length);
-            const bal = owner.balances?.wallet ?? 0;
-            return {
-              id: owner.id ? String(owner.id) : `seller-${owner.email}`,
-              name: owner.shopName || owner.name || owner.fullName,
-              fullName: owner.fullName,
-              email: owner.email,
-              balance: bal,
-              productsCount: count,
-              products: localProducts,
-            };
-          });
-
-          // Keep ONLY the real accounts present in the database (Azhar uddin, Wajeed ullah, etc.)
-          setMerchants(dynamicMerchants);
-
-          // Default select first dynamic merchant if available
-          setSelectedMerchantId((prev) => {
-            if (dynamicMerchants.some((m) => m.id === prev)) return prev;
-            return dynamicMerchants[0]?.id || 'seller-disk-1';
-          });
-        }
-      } catch (err) {
-        console.warn('Failed to load dynamic consign merchants:', err);
-      }
-    };
-
-    fetchMerchants();
-    const interval = setInterval(fetchMerchants, 15_000);
-    window.addEventListener('focus', fetchMerchants);
+    refreshMerchants();
+    const interval = setInterval(refreshMerchants, 15_000);
+    window.addEventListener('focus', refreshMerchants);
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', fetchMerchants);
+      window.removeEventListener('focus', refreshMerchants);
     };
-  }, []);
+  }, [refreshMerchants]);
 
-  // Selected merchant object
-  const selectedMerchant = useMemo(() => {
-    return merchants.find((m) => m.id === selectedMerchantId) || merchants[0] || DB_MERCHANTS[0];
-  }, [merchants, selectedMerchantId]);
+  const selectedMerchant: ConsignMerchant =
+    merchants?.find((merchant) => merchant.id === selectedMerchantId) || merchants?.[0] || EMPTY_MERCHANT;
 
-  // If selected merchant's products are not yet loaded, auto-fetch from API or scoped local storage
   useEffect(() => {
-    if (selectedMerchant?.email && (!selectedMerchant.products || selectedMerchant.products.length === 0)) {
-      const localProducts = readLocalSellerProducts(selectedMerchant.email);
-
-      if (localProducts.length > 0) {
-        setMerchants((prev) =>
-          prev.map((m) =>
-            m.id === selectedMerchant.id || m.email === selectedMerchant.email
-              ? { ...m, products: localProducts, productsCount: localProducts.length }
-              : m
-          )
-        );
-      } else {
-        fetch(`/api/seller/products?email=${encodeURIComponent(selectedMerchant.email)}`)
-          .then((r) => r.json())
-          .then((d) => {
-            if (d.success && Array.isArray(d.products) && d.products.length > 0) {
-              setMerchants((prev) =>
-                prev.map((m) =>
-                  m.id === selectedMerchant.id || m.email === selectedMerchant.email
-                    ? { ...m, products: d.products, productsCount: d.products.length }
-                    : m
-                )
-              );
-            }
-          })
-          .catch(() => {});
-      }
-    }
-  }, [selectedMerchant?.id, selectedMerchant?.email]);
+    const email = selectedMerchant.email;
+    if (!email || activeConsignTab !== 'consign') return;
+    const controller = new AbortController();
+    setMerchantProducts({ email, products: readLocalSellerProducts(email) });
+    fetch('/api/seller/products?email=' + encodeURIComponent(email), { signal: controller.signal, cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!controller.signal.aborted && data.success && Array.isArray(data.products) && (data.authoritative || data.products.length)) {
+          setMerchantProducts({ email, products: data.products });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [activeConsignTab, selectedMerchant.email]);
 
   // Products added to this seller's shop under "My Product"
   const currentMerchantProducts = useMemo<ConsignProduct[]>(() => {
-    const rawList = selectedMerchant?.products || [];
+    const rawList = merchantProducts && merchantProducts.email === selectedMerchant.email ? merchantProducts.products : [];
     if (rawList.length > 0) {
       return rawList.map((p: any, idx: number) => ({
         id: String(p.id || `cp-${idx}`),
@@ -375,7 +304,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
       }));
     }
     return [];
-  }, [selectedMerchant]);
+  }, [merchantProducts, selectedMerchant.email]);
 
   const productPageSize = CONSIGN_CATALOG_PAGE_SIZE;
 
@@ -673,6 +602,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
   };
 
   const handleDispatch = () => {
+    if (!selectedMerchant.email) return;
     setIsDispatching(true);
     setTimeout(() => {
       setIsDispatching(false);
@@ -1339,7 +1269,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
     return (
       <div className="max-w-7xl mx-auto animate-fadeIn space-y-6 pb-12">
         {consignTabs}
-        <AdminConsignProductQueriesPanel merchants={merchants} orders={orders} notify={notify} />
+        <AdminConsignProductQueriesPanel merchants={merchants ?? []} orders={orders} notify={notify} />
       </div>
     );
   }
@@ -1363,12 +1293,16 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
             <div className="relative w-full max-w-sm" data-click-away-menu={isMerchantDropdownOpen ? menuId : undefined}>
               <button
                 id="merchant-selector-button"
+                type="button"
+                aria-expanded={isMerchantDropdownOpen}
+                aria-controls="merchant-dropdown-menu"
                 onClick={() => setIsMerchantDropdownOpen(!isMerchantDropdownOpen)}
                 className="w-full flex items-center justify-between h-9 px-3 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 font-medium hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-300 transition-all text-left"
               >
                 <span className="truncate">
-                  {selectedMerchant.name} · bal ${selectedMerchant.balance.toFixed(2)}
-                  {selectedMerchant.productsCount !== undefined ? ` · ${selectedMerchant.productsCount} stocked` : ''}
+                  {selectedMerchant.id
+                    ? selectedMerchant.name + ' · bal $' + selectedMerchant.balance.toFixed(2) + ' · ' + (selectedMerchant.productsCount ?? 0) + ' stocked'
+                    : !merchants && !merchantError ? 'Loading registered sellers…' : 'Select a merchant'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0 ml-2" />
               </button>
@@ -1376,13 +1310,20 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
               {/* Dropdown Options List */}
               {isMerchantDropdownOpen && (
                 <div id="merchant-dropdown-menu" className="absolute top-full left-0 mt-1 w-full max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl z-30 py-1 text-xs">
-                  {merchants.map((m) => (
+                  {!merchants && !merchantError && <p role="status" className="px-3 py-2 text-gray-600">Loading registered sellers…</p>}
+                  {merchantError && !merchants && (
+                    <button type="button" onClick={refreshMerchants} className="w-full px-3 py-2 text-left text-rose-700">
+                      Could not load sellers. Retry
+                    </button>
+                  )}
+                  {merchants?.length === 0 && <p className="px-3 py-2 text-gray-600">No registered sellers.</p>}
+                  {merchants?.map((m) => (
                     <button
                       key={m.id}
                       data-merchant-id={m.id}
                       onClick={() => handleSelectMerchant(m)}
                       className={`w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center justify-between ${
-                        selectedMerchantId === m.id ? 'bg-gray-100 font-semibold text-gray-900' : 'text-gray-800'
+                        selectedMerchant.id === m.id ? 'bg-gray-100 font-semibold text-gray-900' : 'text-gray-800'
                       }`}
                     >
                       <span className="flex items-center gap-1.5 truncate">
@@ -2157,7 +2098,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
           <button
             id="consign-dispatch-btn"
             onClick={handleDispatch}
-            disabled={isDispatching}
+            disabled={isDispatching || !selectedMerchant.email}
             className="px-4 py-2 bg-[#1e293b] hover:bg-[#0f172a] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors flex items-center gap-2 shrink-0 disabled:opacity-50"
           >
             {isDispatching ? 'Dispatching...' : 'Dispatch'}

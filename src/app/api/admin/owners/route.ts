@@ -3,6 +3,7 @@ import path from 'path';
 import { NextResponse } from 'next/server';
 import {
   getAllSellersServer,
+  getConsignMerchantDirectory,
   updateSellerStatusServer,
   createAdminSellerServer,
 } from '@/lib/inviteCodesServer';
@@ -12,11 +13,30 @@ import { getRequestAdmin } from '@/lib/adminSession';
 export async function GET(request: Request) {
   try {
     if (!(await getRequestAdmin(request))) return NextResponse.json({ success: false, error: 'Please sign in to the admin panel.' }, { status: 401 });
-    const sellers = await getAllSellersServer();
+    const merchantView = new URL(request.url).searchParams.get('view') === 'merchants';
+    const sellers = merchantView ? await getConsignMerchantDirectory() : await getAllSellersServer();
     const rechargeFile=path.join(process.cwd(),'src/data/wallet_recharges.json');
     const recharges=fs.existsSync(rechargeFile)?JSON.parse(fs.readFileSync(rechargeFile,'utf8')):[];
     const adjustmentFile=path.join(process.cwd(),'src/data/seller_wallet_adjustments.json');
     const adjustments=fs.existsSync(adjustmentFile)?JSON.parse(fs.readFileSync(adjustmentFile,'utf8')):[];
+    if (merchantView) {
+      const credits = new Map<string, number>();
+      const addCredit = (email: unknown, amount: number) => {
+        if (typeof email !== 'string' || !Number.isFinite(amount)) return;
+        const key = email.trim().toLowerCase();
+        credits.set(key, (credits.get(key) ?? 0) + amount);
+      };
+      for (const row of recharges) {
+        if (row.status === 'Confirmed') addCredit(row.handle, Math.round(Number(row.creditedAmount ?? row.amount) * 100));
+      }
+      for (const row of adjustments) {
+        if (row.accountType === 'wallet') addCredit(row.sellerEmail, Math.round(Number(row.amount) * 100));
+      }
+      const merchants = sellers.map((seller) => ({
+        ...seller, balance: Math.max(0, credits.get(seller.email) ?? 0) / 100,
+      }));
+      return NextResponse.json({ success: true, merchants }, { headers: { 'Cache-Control': 'no-store, private' } });
+    }
     const owners=sellers.map((seller:any)=>{
       const approved=recharges.filter((r:any)=>r.status==='Confirmed'&&r.handle?.toLowerCase()===seller.email?.toLowerCase());
       const sellerAdjustments=adjustments.filter((a:any)=>a.sellerEmail?.toLowerCase()===seller.email?.toLowerCase());

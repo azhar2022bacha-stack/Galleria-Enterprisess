@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ProfilePhotoEditor } from '@/components/support/ProfilePhotoEditor';
+import { validatePasswordComplexity } from '@/lib/passwordValidation';
 import {
   ArrowRight,
   ImagePlus,
@@ -11,7 +14,7 @@ import {
   Store,
   Trash2,
 } from 'lucide-react';
-import { countShopDescriptionWords, MAX_SHOP_DESCRIPTION_WORDS } from '@/lib/sellerShopDescription';
+import { countShopDescriptionCharacters, MAX_SHOP_DESCRIPTION_CHARACTERS } from '@/lib/sellerShopDescription';
 import type { ShopSettings } from '@/lib/sellerOrders';
 
 interface SellerSettingsPanelProps {
@@ -34,13 +37,14 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
   const [shopName, setShopName] = useState('');
   const [description, setDescription] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoDraft, setLogoDraft] = useState<string | null>(null);
   const [savingBasicInfo, setSavingBasicInfo] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [readingLogo, setReadingLogo] = useState(false);
   const [basicError, setBasicError] = useState('');
-  const wordCount = countShopDescriptionWords(description);
-  const descriptionTooLong = wordCount > MAX_SHOP_DESCRIPTION_WORDS;
+  const characterCount = countShopDescriptionCharacters(description.trim());
+  const descriptionTooLong = characterCount > MAX_SHOP_DESCRIPTION_CHARACTERS;
   const basicFieldsDisabled = !settingsLoaded || savingBasicInfo;
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -48,6 +52,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
   const [showPassword, setShowPassword] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,8 +98,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setLogoUrl(reader.result);
-        notify?.('Logo ready. Save your shop settings to publish it.');
+        setLogoDraft(reader.result);
       }
     };
     reader.onerror = () => setBasicError('Could not read that image. Please choose another file.');
@@ -133,6 +137,16 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
     event.preventDefault();
     if (updatingPassword) return;
     setPasswordError('');
+    setPasswordSuccess('');
+    if (currentPassword === newPassword) {
+      setPasswordError('Choose a new password different from your current password.');
+      return;
+    }
+    const validation = validatePasswordComplexity(newPassword);
+    if (!validation.isValid) {
+      setPasswordError(validation.errors[0]);
+      return;
+    }
     setUpdatingPassword(true);
     try {
       const response = await fetch('/api/seller/change-password', {
@@ -141,7 +155,8 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await getResponseData(response);
-      notify?.(data.message || 'Password updated successfully.');
+      setPasswordSuccess(data.message || 'Password updated successfully.');
+      setShowPassword(false);
       setCurrentPassword('');
       setNewPassword('');
     } catch (error: any) {
@@ -153,6 +168,19 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
 
   return (
     <div className="mx-auto max-w-5xl animate-fadeIn space-y-6 pb-6">
+      {logoDraft && createPortal(
+        <ProfilePhotoEditor
+          key={logoDraft}
+          src={logoDraft}
+          variant="logo"
+          onCancel={() => setLogoDraft(null)}
+          onSave={async (logo) => {
+            setLogoUrl(logo);
+            setLogoDraft(null);
+          }}
+        />,
+        document.body,
+      )}
       <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-blue-50/70 p-5 shadow-sm sm:p-7">
         <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-blue-100/60 blur-3xl" />
         <div className="relative flex items-start gap-4">
@@ -202,7 +230,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
             <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 sm:flex-row sm:items-center">
               <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white text-[11px] text-slate-400 shadow-sm">
                 {logoUrl ? (
-                  <img src={logoUrl} alt="Shop logo preview" className="h-full w-full object-cover" />
+                  <img src={logoUrl} alt="Shop logo preview" className="h-full w-full object-contain" />
                 ) : (
                   <ImagePlus className="h-6 w-6" />
                 )}
@@ -223,8 +251,14 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
                   className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-900/15"
                 >
                   <ImagePlus className="h-4 w-4" />
-                  Upload image
+                  Upload logo
                 </button>
+                {logoUrl && (
+                  <button type="button" disabled={basicFieldsDisabled || readingLogo} onClick={() => setLogoDraft(logoUrl)}
+                    className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-700">
+                    Edit logo
+                  </button>
+                )}
                 {logoUrl && (
                   <button
                     type="button"
@@ -246,7 +280,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
               <label htmlFor="seller-shop-description" className="block text-xs font-semibold text-slate-700">
                 Description
               </label>
-              <span id="seller-shop-description-count" className={descriptionTooLong ? "text-xs font-semibold text-red-700" : "text-xs text-slate-500"}>{wordCount} / {MAX_SHOP_DESCRIPTION_WORDS} words</span>
+              <span id="seller-shop-description-count" className={descriptionTooLong ? "text-xs font-semibold text-red-700" : "text-xs text-slate-500"}>{characterCount} / {MAX_SHOP_DESCRIPTION_CHARACTERS} characters</span>
             </div>
             <textarea
               id="seller-shop-description"
@@ -319,6 +353,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
               <input
                 id="seller-current-password"
                 type={showPassword ? 'text' : 'password'}
+                disabled={updatingPassword}
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
                 autoComplete="current-password"
@@ -334,17 +369,20 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
               <input
                 id="seller-new-password"
                 type={showPassword ? 'text' : 'password'}
+                disabled={updatingPassword}
+                aria-describedby="seller-new-password-requirements"
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
                 autoComplete="new-password"
                 minLength={8}
                 required
-                placeholder="8+ characters with upper/lowercase, a number, and a symbol"
+                placeholder="Enter a new password"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
               />
             </div>
           </div>
 
+          <p id="seller-new-password-requirements" className="text-xs text-slate-600">Use at least 8 characters with uppercase and lowercase letters, a number, and a symbol.</p>
           <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-600">
             <input
               type="checkbox"
@@ -367,6 +405,7 @@ export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, 
             <span className="text-[11px] text-slate-500">You will stay signed in on this device.</span>
           </div>
           {passwordError && <p role="alert" className="text-sm text-red-700">{passwordError}</p>}
+          {passwordSuccess && <p role="status" className="text-sm font-medium text-emerald-700">{passwordSuccess}</p>}
         </form>
       </section>
     </div>

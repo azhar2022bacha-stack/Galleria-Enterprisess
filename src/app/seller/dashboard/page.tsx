@@ -631,6 +631,9 @@ export default function SellerDashboardPage() {
 
   const merchantName = shopSettings?.shopName || merchantProfile.shopName || merchantProfile.fullName || 'Ansar collection';
   const merchantInitial = (merchantName.trim().charAt(0) || 'A').toUpperCase();
+  const merchantAvatar = shopSettings?.logoUrl
+    ? <img src={shopSettings.logoUrl} alt="" className="h-full w-full rounded-[inherit] bg-white object-contain" />
+    : merchantInitial;
   const isApproved = sellerStatus === 'approved' && sellerIdStatus === 'Verified';
 
   // Live orders + wallet from the shared seller order store (fed by storefront checkout and admin consign)
@@ -1161,7 +1164,7 @@ export default function SellerDashboardPage() {
             {/* Merchant Identity Profile */}
             <div data-seller-sidebar-identity className="mt-3.5 pt-3 border-t border-gray-800/60 flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-[#cca23b] text-[#071324] flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
-                {merchantInitial}
+                {merchantAvatar}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
@@ -1300,7 +1303,7 @@ export default function SellerDashboardPage() {
           {/* Store Info Left */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <div className="w-9 h-9 shrink-0 rounded-lg bg-[#cca23b] text-[#071324] font-bold text-sm flex items-center justify-center shadow-sm">
-              {merchantInitial}
+              {merchantAvatar}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -1375,7 +1378,7 @@ export default function SellerDashboardPage() {
               title="Shop Settings"
               className="w-8 h-8 rounded-full bg-[#cca23b] text-[#071324] font-bold text-xs flex items-center justify-center cursor-pointer shadow-sm hover:opacity-90"
             >
-              {merchantInitial}
+              {merchantAvatar}
             </div>
           </div>
         </header>

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { readStoreExposure } from '@/lib/storeExposureServer';
 import { getSellerByEmailServer } from '@/lib/inviteCodesServer';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
 import { hasViewedSellerApproval, recordSellerApprovalView } from '@/lib/sellerShopSettingsServer';
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
           approvalViewed: hasViewedSellerApproval(sessionEmail),
           grantedFunds: Math.max(0, sellerWalletAdjustmentCents(guaranteeAdjustments)) / 100,
           retailGrossSales: retailSalesCents / 100,
+          storeTraffic: readStoreExposure(sessionEmail),
         },
       },
       { status: 200 }

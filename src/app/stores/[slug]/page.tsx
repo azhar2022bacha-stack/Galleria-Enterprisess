@@ -45,7 +45,7 @@ export default function PublicSellerStorePage() {
     setLoading(true);
     setLoadError('');
     try {
-      const response = await fetch(`/api/seller/public-store?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' });
+      const response = await fetch(`/api/seller/public-store?slug=${encodeURIComponent(slug)}&visit=1`, { cache: 'no-store' });
       const data = await response.json() as StoreApiResult;
       if (!response.ok || !data.success) throw new Error(data.error || 'We could not load this storefront. Please refresh and try again.');
       setStore(data.store || null);

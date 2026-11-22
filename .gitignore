@@ -54,3 +54,6 @@ tmp/
 # OS files
 .DS_Store
 Thumbs.db
+
+/src/data/store_exposure.json
+/src/data/store_exposure.json.*.tmp

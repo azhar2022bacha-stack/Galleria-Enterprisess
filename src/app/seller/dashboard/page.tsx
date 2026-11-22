@@ -364,6 +364,7 @@ export default function SellerDashboardPage() {
   const [approvalViewed, setApprovalViewed] = useState(false);
   const [grantedFunds, setGrantedFunds] = useState(0);
   const [retailGrossSales, setRetailGrossSales] = useState(0);
+  const [storeTraffic, setStoreTraffic] = useState({ visits: 0, exposure: 0 });
   const prevApprovedRef = React.useRef<boolean | null>(null);
   const currentEmailRef = React.useRef<string>('');
   const seenSellerNotificationIdsRef = React.useRef<Set<string> | null>(null);
@@ -503,6 +504,7 @@ export default function SellerDashboardPage() {
             setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
             setGrantedFunds(Number(data.seller.grantedFunds) || 0);
             setRetailGrossSales(Number(data.seller.retailGrossSales) || 0);
+            setStoreTraffic({ visits: Number(data.seller.storeTraffic?.visits) || 0, exposure: Number(data.seller.storeTraffic?.exposure) || 0 });
 
             const isNowApproved = st === 'approved' && idSt === 'Verified' && Boolean(data.seller.isApproved);
             if (prevApprovedRef.current === false && isNowApproved) {
@@ -1585,18 +1587,16 @@ export default function SellerDashboardPage() {
                 </div>
               </div>
 
-              {/* Row 2: STORE VISITORS · EXPOSURE Banner */}
-              <div className="bg-[#faf5ff] border border-purple-200/80 rounded-2xl p-5 flex items-center justify-between shadow-sm">
+              <dl className="grid grid-cols-2 gap-4 rounded-2xl border border-purple-200/80 bg-[#faf5ff] p-5 shadow-sm">
                 <div>
-                  <span className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider block">
-                    STORE VISITORS · EXPOSURE
-                  </span>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Traffic the platform has driven to your shop
-                  </p>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-[#7c3aed]">Store Visits</dt>
+                  <dd className="mt-1 text-3xl font-bold text-[#7c3aed]">{storeTraffic.visits.toLocaleString()}</dd>
                 </div>
-                <span className="text-3xl font-bold text-[#7c3aed] pr-2">0</span>
-              </div>
+                <div>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-[#7c3aed]">Platform Exposure</dt>
+                  <dd className="mt-1 text-3xl font-bold text-[#7c3aed]">{storeTraffic.exposure.toLocaleString()}</dd>
+                </div>
+              </dl>
 
               {/* Row 3: Order flow section */}
               <div className="space-y-3">

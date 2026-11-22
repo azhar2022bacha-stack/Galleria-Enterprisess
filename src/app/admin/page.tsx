@@ -7,6 +7,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { AdminSidebar, AdminTab, SettingsSubTab } from '@/components/admin/AdminSidebar';
 import { AdminHeader } from '@/components/admin/AdminHeader';
 import type { SellerConfirmedOrder } from '@/components/admin/AdminConfirmSellerOrdersView';
+import { fetchAdminConsignOrders } from '@/lib/adminConsignOrders';
 import { EMPTY_ADMIN_TODO_COUNTS, fetchAdminTodoCounts, totalAdminTodoCount } from '@/lib/adminTodoCounts';
 import type { AdminTodoCounts } from '@/lib/adminTodoCounts';
 import { fetchConsignMerchants } from '@/lib/consignMerchants';
@@ -373,9 +374,7 @@ export default function AdminPage() {
       if (requestInFlight || document.visibilityState === 'hidden') return;
       requestInFlight = true;
       try {
-        const response = await fetch('/api/consign/orders', { cache: 'no-store', signal: controller.signal });
-        if (!response.ok) return;
-        const data = await response.json();
+        const data = await fetchAdminConsignOrders();
         if (!data?.success || !Array.isArray(data.orders)) return;
         const confirmed = (data.orders as SellerConfirmedOrder[])
           .filter(isSellerConfirmedOrder)

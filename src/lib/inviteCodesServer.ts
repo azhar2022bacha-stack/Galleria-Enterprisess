@@ -13,7 +13,7 @@ import {
   verifyPasswordWithSalt,
   verifyCombinedPasswordHash,
 } from './passwordValidation';
-import { getAllKycSubmissionsServer } from './kycServer';
+import { getAllKycSubmissionsServer, getKycSubmissionByEmailServer, type KycSubmission } from './kycServer';
 import { readAllSellerProductsMap } from './sellerProductsServer';
 
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'invite_codes.json');
@@ -591,8 +591,7 @@ export async function getSellerByEmailServer(email: string): Promise<StoredSelle
   if (!normalized) return null;
 
   // Retrieve KYC status for this seller email
-  const allKyc = await getAllKycSubmissionsServer();
-  const userKyc = allKyc.find((k) => (k.sellerEmail || '').toLowerCase() === normalized);
+  const userKyc = await getKycSubmissionByEmailServer(normalized);
 
   const dbOnline = await isDbConnected();
   if (dbOnline) {
@@ -862,9 +861,25 @@ export async function getConsignMerchantDirectory() {
 /**
  * Fetch all registered shops / owners dynamically from PostgreSQL and disk mirror
  */
-export async function getAllSellersServer(): Promise<FormattedAdminOwner[]> {
-  // Fetch latest KYC records to attach to owners
-  const allKyc = await getAllKycSubmissionsServer();
+export async function getAdminTodoSellerStatuses() {
+  const result = await dbQuery<{ status: string; created_at: Date | string }>(
+    'SELECT status, created_at FROM sellers'
+  );
+  if (!result?.rows.length) return readDiskSellers().map(({ status, createdAt }) => ({
+    status: preserveStoredSellerVerification(status, undefined).status,
+    createdAt,
+  }));
+  return result.rows.map(({ status, created_at }) => ({
+    status: preserveStoredSellerVerification(status, undefined).status,
+    createdAt: created_at,
+  }));
+}
+
+export async function getAllSellersServer({ summary = false, kycSubmissions }: {
+  summary?: boolean;
+  kycSubmissions?: KycSubmission[];
+} = {}): Promise<FormattedAdminOwner[]> {
+  const allKyc = kycSubmissions ?? await getAllKycSubmissionsServer({ summary });
   const kycMap = new Map(allKyc.map((k) => [(k.sellerEmail || '').toLowerCase(), k]));
   const productsMap = readAllSellerProductsMap();
 
@@ -936,7 +951,7 @@ export async function getAllSellersServer(): Promise<FormattedAdminOwner[]> {
             idStatus,
             kycSubmission: userKyc || null,
             productsCount: sellerProducts.length,
-            products: sellerProducts,
+            products: summary ? [] : sellerProducts,
             balances: { pending: 0, wallet: 0, guarantee: 0 },
             creditScore: 100,
             creditLogs: [],
@@ -999,7 +1014,7 @@ export async function getAllSellersServer(): Promise<FormattedAdminOwner[]> {
       idStatus,
       kycSubmission: userKyc || null,
       productsCount: sellerProducts.length,
-      products: sellerProducts,
+      products: summary ? [] : sellerProducts,
       balances: { pending: 0, wallet: 0, guarantee: 0 },
       creditScore: 100,
       creditLogs: [],

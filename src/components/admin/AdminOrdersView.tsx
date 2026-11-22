@@ -1,5 +1,6 @@
 'use client';
 
+import { fetchAdminConsignOrders } from '@/lib/adminConsignOrders';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
@@ -100,15 +101,12 @@ export function AdminOrdersView({
       if (consignSyncInFlight) return;
       consignSyncInFlight = true;
       void Promise.all([
-        fetch('/api/consign/orders', { cache: 'no-store' }),
+        fetchAdminConsignOrders(),
         fetch('/api/consign/disputes', { cache: 'no-store' }),
       ])
-        .then(async ([ordersResponse, disputesResponse]) => {
-          const [ordersResult, disputesResult] = await Promise.all([
-            ordersResponse.json(),
-            disputesResponse.json(),
-          ]);
-          if (!active || !ordersResponse.ok || !ordersResult?.success) return;
+        .then(async ([ordersResult, disputesResponse]) => {
+          const disputesResult = await disputesResponse.json();
+          if (!active || !ordersResult?.success) return;
           const disputes = disputesResponse.ok && disputesResult?.success && Array.isArray(disputesResult.disputes)
             ? disputesResult.disputes
             : [];

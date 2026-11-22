@@ -58,9 +58,9 @@ export function writeAllSellerProductsMap(map: Record<string, StoredSellerProduc
   }
 }
 
-export function getSellerProductsByEmail(email: string): StoredSellerProductItem[] {
+export function getSellerProductsByEmail(email: string, snapshot?: Record<string, StoredSellerProductItem[]>): StoredSellerProductItem[] {
   if (!email) return [];
-  const map = readAllSellerProductsMap();
+  const map = snapshot ?? readAllSellerProductsMap();
   const normalized = email.toLowerCase().trim();
   return map[normalized] || map[email] || [];
 }

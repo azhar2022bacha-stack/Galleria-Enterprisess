@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       }
       const allMap = readAllSellerProductsMap();
       const normalizedEmail = email.trim().toLowerCase();
-      const products = getSellerProductsByEmail(email);
+      const products = getSellerProductsByEmail(email, allMap);
       return NextResponse.json({
         success: true,
         email,

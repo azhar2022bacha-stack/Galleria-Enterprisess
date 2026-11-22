@@ -193,27 +193,11 @@ function productReviewCount(productMap: unknown): number {
   return uniquePending.size;
 }
 
-export async function fetchAdminTodoCounts(): Promise<AdminTodoCounts> {
-  const [rechargeData, ownerData, productData, supportData, orderData] = await Promise.all([
-    getJson('/api/recharges'),
-    getJson('/api/admin/owners'),
-    getJson('/api/seller/products'),
-    getJson('/api/support'),
-    getJson('/api/consign/orders'),
-  ]);
-
+export function summarizeAdminTodoSources(recharges: unknown, ownersData: unknown, products: unknown, chatsData: unknown) {
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const owners = asArray(ownerData?.owners);
-  const chats = asArray(supportData?.chats);
-  const localOrders = readLocalArray('galleria_seller_orders');
-  const localConsignOrders = readLocalArray('galleria_consign_orders_v3');
-  const hasOrderSnapshot = Boolean(orderData) || localOrders.length > 0 || localConsignOrders.length > 0;
-  const orders = uniqueOrders(
-    localOrders,
-    localConsignOrders,
-    asArray(orderData?.orders)
-  );
+  const owners = asArray(ownersData);
+  const chats = asArray(chatsData);
   const openChats = chats.filter((chat) => {
     const status = String(chat?.status || 'open').toLowerCase();
     return status !== 'closed' && status !== 'resolved' && asArray(chat?.messages).some((message) => !message?.deleted);
@@ -231,25 +215,41 @@ export async function fetchAdminTodoCounts(): Promise<AdminTodoCounts> {
       Number.isFinite(latestAt) && now - latestAt >= 24 * 60 * 60 * 1000;
   }).length;
 
-  const refunds = readLocalArray('galleria_seller_refunds');
-  const pendingRefunds = refunds.filter((refund) => String(refund?.status || '').toLowerCase() === 'pending').length;
   const pendingOwners = owners.filter((owner) => pendingStatus(owner?.status)).length;
   const newOwners = owners.filter((owner) => {
     const timestamp = recordTime(owner);
     return timestamp !== null && timestamp >= weekAgo && timestamp <= now;
   }).length;
 
+  return {
+    ...(recharges ? {
+      recharges: asArray(recharges).filter((row) => pendingStatus(row?.status)).length,
+      deposits: asArray(recharges).filter((row) => String(row?.status || '').trim().toLowerCase() === 'confirmed').length,
+    } : {}),
+    ...(ownersData ? { merchantReview: pendingOwners, newLast7Days: newOwners } : {}),
+    ...(products ? { productReview: productReviewCount(products) } : {}),
+    ...(chatsData ? { supportTickets: openChats.length, chasedNoReply } : {}),
+  };
+}
+
+export async function fetchAdminTodoCounts(): Promise<AdminTodoCounts> {
+  const data = await getJson('/api/admin/todo-counts');
+  const now = Date.now();
+  const orderData = Array.isArray(data?.orders) ? data : null;
+  const localOrders = readLocalArray('galleria_seller_orders');
+  const localConsignOrders = readLocalArray('galleria_consign_orders_v3');
+  const hasOrderSnapshot = Boolean(orderData) || localOrders.length > 0 || localConsignOrders.length > 0;
+  const orders = uniqueOrders(
+    localOrders,
+    localConsignOrders,
+    asArray(orderData?.orders)
+  );
+  const refunds = readLocalArray('galleria_seller_refunds');
+  const pendingRefunds = refunds.filter((refund) => String(refund?.status || '').toLowerCase() === 'pending').length;
   const nextCounts: AdminTodoCounts = {
-    recharges: rechargeData
-      ? asArray(rechargeData.recharges).filter((row) => pendingStatus(row?.status)).length
-      : lastSuccessfulTodoCounts.recharges,
-    deposits: rechargeData
-      ? asArray(rechargeData.recharges).filter((row) => String(row?.status || '').trim().toLowerCase() === 'confirmed').length
-      : lastSuccessfulTodoCounts.deposits,
+    ...lastSuccessfulTodoCounts,
+    ...data?.counts,
     withdrawals: getPendingWithdrawalCount(),
-    merchantReview: ownerData ? pendingOwners : lastSuccessfulTodoCounts.merchantReview,
-    productReview: productData ? productReviewCount(productData.data) : lastSuccessfulTodoCounts.productReview,
-    supportTickets: supportData ? openChats.length : lastSuccessfulTodoCounts.supportTickets,
     refundRequests: pendingRefunds,
     merchantOverdue: hasOrderSnapshot
       ? orders.filter((order) => orderIsMerchantOverdue(order, now)).length
@@ -257,8 +257,6 @@ export async function fetchAdminTodoCounts(): Promise<AdminTodoCounts> {
     unfulfilledOrders: hasOrderSnapshot
       ? orders.filter(orderIsUnfulfilled).length
       : lastSuccessfulTodoCounts.unfulfilledOrders,
-    newLast7Days: ownerData ? newOwners : lastSuccessfulTodoCounts.newLast7Days,
-    chasedNoReply: supportData ? chasedNoReply : lastSuccessfulTodoCounts.chasedNoReply,
     newSellerOrders: hasOrderSnapshot
       ? orders.filter(orderIsNewSellerOrder).length
       : lastSuccessfulTodoCounts.newSellerOrders,

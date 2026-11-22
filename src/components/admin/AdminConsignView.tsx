@@ -609,11 +609,10 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
     }
   };
 
-  const handleDispatch = () => {
-    if (!selectedMerchant.email) return;
+  const handleDispatch = async () => {
+    if (!selectedMerchant.email || isDispatching) return;
     setIsDispatching(true);
-    setTimeout(() => {
-      setIsDispatching(false);
+    try {
 
       const targetShoppers = [activeSelectedShopper];
 
@@ -699,22 +698,6 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
         };
 
         createdConsignOrders.push(newOrder);
-
-        // Dynamically push to the EXACT selected merchant's registered Seller Account Orders
-        addOrderFromConsign({
-          id: newOrder.id,
-          orderNumber: newOrder.orderNumber,
-          shopName: selectedMerchant.name,
-          merchantEmail: selectedMerchant.email,
-          shopperName: shopperShipping.recipient,
-          shopperEmail: shopperShipping.email,
-          shippingAddress: shopperShipping,
-          products: orderProducts,
-          amount: perShopperCost,
-          paymentMethod: 'Consign Escrow',
-          status: 'awaiting_payment',
-          createdAt: createdAtIso,
-        });
       });
 
       const totalDispatched = perShopperCost * targetShoppers.length;
@@ -736,18 +719,8 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
         totalCost: totalDispatched,
       };
 
-      setOrders((prev) => {
-        const next = [...createdConsignOrders, ...prev];
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(CONSIGN_ORDERS_STORAGE_KEY, JSON.stringify(next));
-          } catch {}
-        }
-        return next;
-      });
-
       // Persist dispatched consign orders on server for cross-browser / separate session sync
-      fetch('/api/consign/orders', {
+      const response = await fetch('/api/consign/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -759,12 +732,49 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
             createdAt: createdAtIso,
           })),
         }),
-      }).catch(() => {});
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Could not dispatch this order.');
+      }
+
+      // The order is already saved; browser storage is only a local mirror.
+      try {
+        for (const newOrder of createdConsignOrders) {
+          addOrderFromConsign({
+            id: newOrder.id,
+            orderNumber: newOrder.orderNumber,
+            shopName: selectedMerchant.name,
+            merchantEmail: selectedMerchant.email,
+            shopperName: newOrder.shopperName,
+            shopperEmail: newOrder.shopperEmail,
+            shippingAddress: newOrder.shippingAddress,
+            products: orderProducts,
+            amount: perShopperCost,
+            paymentMethod: 'Consign Escrow',
+            status: 'awaiting_payment',
+            createdAt: createdAtIso,
+          });
+        }
+      } catch {}
+      setOrders((prev) => {
+        const next = [...createdConsignOrders, ...prev.filter((order) => !createdConsignOrders.some((created) => created.id === order.id))];
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(CONSIGN_ORDERS_STORAGE_KEY, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
 
       notify?.(
         `Dispatched ${createdConsignOrders.length} order(s) to ${selectedMerchant.name}! Total: $${totalDispatched.toFixed(2)}`
       );
-    }, 600);
+    } catch (error) {
+      notify?.(error instanceof Error ? error.message : 'Could not dispatch this order.');
+    } finally {
+      setIsDispatching(false);
+    }
   };
 
   // Filtered Orders for Screen 4

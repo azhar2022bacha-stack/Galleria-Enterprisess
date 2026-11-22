@@ -24,6 +24,7 @@ export interface VerificationItem {
   docType: 'National ID Card (NIC)' | 'Passport' | 'Driving Licence' | 'Residence Permit' | 'Shop registration';
   frontImage: string;
   backImage?: string;
+  hasBackImage?: boolean;
   status: 'pending' | 'approved' | 'rejected';
   rejectionReason?: string;
   submittedAt: string;
@@ -40,6 +41,7 @@ interface AdminVerificationViewProps {
 }
 
 export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
+  const reviewRequest = React.useRef(0);
   const [items, setItems] = useState<VerificationItem[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<VerificationItem | null>(null);
@@ -54,7 +56,7 @@ export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
   const fetchSubmissions = async (silent = false) => {
     try {
       if (!silent) setIsRefreshing(true);
-      const res = await fetch('/api/kyc', { cache: 'no-store' });
+      const res = await fetch('/api/kyc?view=summary', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.submissions)) {
@@ -90,7 +92,7 @@ export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
 
     // Refresh periodically while this view is open; focus refreshes immediately.
     const interval = setInterval(() => {
-      fetchSubmissions(true);
+      if (document.visibilityState !== 'hidden') fetchSubmissions(true);
     }, 15_000);
 
     return () => clearInterval(interval);
@@ -170,12 +172,27 @@ export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
     }
   };
 
-  const openReviewModal = (
+  const openReviewModal = async (
     item: VerificationItem,
     side: 'Front' | 'Back' = 'Front',
     mode: 'side-only' | 'full' = 'side-only'
   ) => {
-    setSelectedSubmission(item);
+    const request = ++reviewRequest.current;
+    let submission = item;
+    if (item.source !== 'seller-registration' && !item.frontImage) {
+      try {
+        const params = new URLSearchParams({ email: item.sellerEmail, submissionId: item.id });
+        const response = await fetch('/api/kyc?' + params, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.success || !data.submission) throw new Error('Could not load the verification document.');
+        submission = data.submission;
+      } catch {
+        if (request === reviewRequest.current) notify?.('Could not load the verification document. Please try again.');
+        return;
+      }
+    }
+    if (request !== reviewRequest.current) return;
+    setSelectedSubmission(submission);
     setActiveSide(side);
     setReviewMode(mode);
   };
@@ -353,7 +370,7 @@ export function AdminVerificationView({ notify }: AdminVerificationViewProps) {
                             <span>Front</span>
                           </button>
 
-                          {item.backImage && (
+                          {(item.hasBackImage || item.backImage) && (
                             <button
                               type="button"
                               onClick={() => openReviewModal(item, 'Back', 'side-only')}

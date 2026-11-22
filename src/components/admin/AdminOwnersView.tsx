@@ -108,40 +108,20 @@ export function AdminOwnersView({ notify }: AdminOwnersViewProps) {
     setProductPage(1);
 
     let prods = seller.products || [];
-    if (prods.length === 0) {
-      if (typeof window !== 'undefined') {
-        try {
-          const keys = [
-            `galleria_seller_products_${seller.email}`,
-            `galleria_seller_products_default`,
-            `galleria_seller_products`,
-          ];
-          for (const k of keys) {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                prods = parsed;
-                break;
-              }
-            }
-          }
-        } catch {}
+    try {
+      const saved = localStorage.getItem('galleria_seller_products_' + seller.email.trim().toLowerCase());
+      const local = saved ? JSON.parse(saved) : null;
+      if (Array.isArray(local) && local.length > prods.length) prods = local;
+    } catch {}
+    try {
+      const res = await fetch('/api/seller/products?email=' + encodeURIComponent(seller.email), { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.products) && (data.authoritative || data.products.length)) {
+          prods = data.products;
+        }
       }
-
-      if (prods.length === 0) {
-        try {
-          const res = await fetch(`/api/seller/products?email=${encodeURIComponent(seller.email)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && Array.isArray(data.products)) {
-              prods = data.products;
-            }
-          }
-        } catch {}
-      }
-    }
-
+    } catch {}
     setOwnerProductsList(prods);
   };
 
@@ -170,7 +150,7 @@ export function AdminOwnersView({ notify }: AdminOwnersViewProps) {
   ) => {
     setActiveKycCardSide(side);
     setKycCardMode(mode);
-    if (seller.kycSubmission) {
+    if (seller.kycSubmission?.frontImage) {
       setSelectedKycSeller(seller);
       return;
     }
@@ -257,34 +237,12 @@ export function AdminOwnersView({ notify }: AdminOwnersViewProps) {
   const fetchDynamicOwners = async (silent = false) => {
     try {
       if (!silent) setIsRefreshing(true);
-      const res = await fetch('/api/admin/owners');
+      const res = await fetch('/api/admin/owners?view=summary', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.owners)) {
           // Enrich with client-side localStorage fallback for instant sync on same browser
           const enrichedOwners = data.owners.map((owner: AdminSeller) => {
-            let localProducts: any[] = owner.products || [];
-            if (typeof window !== 'undefined') {
-              try {
-                const keys = [
-                  `galleria_seller_products_${owner.email}`,
-                  `galleria_seller_products_default`,
-                  `galleria_seller_products`,
-                ];
-                for (const k of keys) {
-                  const raw = localStorage.getItem(k);
-                  if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                      if (!localProducts || localProducts.length < parsed.length) {
-                        localProducts = parsed;
-                      }
-                      break;
-                    }
-                  }
-                }
-              } catch {}
-            }
             const emailKey=(owner.email||'').trim().toLowerCase();
             const synced=localStorage.getItem('galleria_approved_recharges_total:'+emailKey);
             const localBalance=localStorage.getItem('galleria_seller_wallet:'+emailKey);
@@ -295,8 +253,6 @@ export function AdminOwnersView({ notify }: AdminOwnersViewProps) {
               usdBalance:balance,
               usdtBalance:balance,
               balances:{...owner.balances,wallet:balance},
-              products: localProducts,
-              productsCount: Math.max(owner.productsCount || 0, localProducts.length),
             };
           });
 

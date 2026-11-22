@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get('email');
+    const submissionId = searchParams.get('submissionId') || undefined;
     const admin = await getRequestAdmin(req);
     if (!email && !admin) return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
     if (email && !admin) {
@@ -29,15 +30,16 @@ export async function GET(req: NextRequest) {
     }
 
     if (email) {
-      const submission = await getKycSubmissionByEmailServer(email);
+      const submission = await getKycSubmissionByEmailServer(email, submissionId);
       return NextResponse.json({
         success: true,
         submission,
       });
     }
 
-    const submissions = await getAllKycSubmissionsServer();
-    const sellers = await getAllSellersServer();
+    const summary = searchParams.get('view') === 'summary';
+    const submissions = await getAllKycSubmissionsServer({ summary });
+    const sellers = await getAllSellersServer({ summary: true, kycSubmissions: submissions });
     const registrationReviews = sellers
       .filter((seller) => {
         const email = String(seller.email || '').trim().toLowerCase();

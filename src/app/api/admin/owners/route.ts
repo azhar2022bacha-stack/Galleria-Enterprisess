@@ -13,8 +13,9 @@ import { getRequestAdmin } from '@/lib/adminSession';
 export async function GET(request: Request) {
   try {
     if (!(await getRequestAdmin(request))) return NextResponse.json({ success: false, error: 'Please sign in to the admin panel.' }, { status: 401 });
-    const merchantView = new URL(request.url).searchParams.get('view') === 'merchants';
-    const sellers = merchantView ? await getConsignMerchantDirectory() : await getAllSellersServer();
+    const view = new URL(request.url).searchParams.get('view');
+    const merchantView = view === 'merchants';
+    const sellers = merchantView ? await getConsignMerchantDirectory() : await getAllSellersServer({ summary: view === 'summary' });
     const rechargeFile=path.join(process.cwd(),'src/data/wallet_recharges.json');
     const recharges=fs.existsSync(rechargeFile)?JSON.parse(fs.readFileSync(rechargeFile,'utf8')):[];
     const adjustmentFile=path.join(process.cwd(),'src/data/seller_wallet_adjustments.json');
@@ -81,7 +82,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const sellers = await getAllSellersServer();
+    const sellers = await getAllSellersServer({ summary: true });
     const target = sellers.find((seller: any) =>
       email
         ? String(seller.email || '').toLowerCase() === String(email).toLowerCase()

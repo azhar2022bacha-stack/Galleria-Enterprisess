@@ -351,15 +351,19 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
 
   useEffect(() => {
     if (!destinationPreferenceLoaded) return;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshDestination();
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void refreshDestination(), 80);
     };
-    refreshDestination();
-    window.addEventListener('focus', refreshDestination);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    void refreshDestination();
+    window.addEventListener('focus', scheduleRefresh);
+    document.addEventListener('visibilitychange', scheduleRefresh);
     return () => {
-      window.removeEventListener('focus', refreshDestination);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimeout(timer);
+      window.removeEventListener('focus', scheduleRefresh);
+      document.removeEventListener('visibilitychange', scheduleRefresh);
     };
   }, [destinationPreferenceLoaded, refreshDestination]);
 

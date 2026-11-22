@@ -10,6 +10,7 @@ export interface KycSubmission {
   docType: 'National ID Card (NIC)' | 'Passport' | 'Driving Licence' | 'Residence Permit';
   frontImage: string;
   backImage?: string;
+  hasBackImage?: boolean;
   status: 'pending' | 'approved' | 'rejected';
   rejectionReason?: string;
   submittedAt: string;
@@ -86,7 +87,12 @@ function updateSellerDiskIdStatus(email: string, idStatus: string): void {
 /**
  * Fetch all KYC submissions from PostgreSQL or disk fallback
  */
-export async function getAllKycSubmissionsServer(): Promise<KycSubmission[]> {
+export async function getAllKycSubmissionsServer({ summary = false, email }: { summary?: boolean; email?: string } = {}): Promise<KycSubmission[]> {
+  const readFallback = () => readDiskKyc()
+    .filter((submission) => !email || submission.sellerEmail?.trim().toLowerCase() === email)
+    .map((submission) => summary
+      ? { ...submission, hasBackImage: Boolean(submission.backImage), frontImage: '', backImage: undefined }
+      : submission);
   const dbOnline = await isDbConnected();
   if (dbOnline) {
     try {
@@ -98,18 +104,25 @@ export async function getAllKycSubmissionsServer(): Promise<KycSubmission[]> {
         doc_type: string;
         front_image: string;
         back_image: string | null;
+        has_back_image: boolean;
         status: string;
         rejection_reason: string | null;
         submitted_at: Date | string;
         reviewed_at: Date | string | null;
         reviewed_by: string | null;
-      }>('SELECT * FROM kyc_submissions ORDER BY id DESC');
+      }>(`SELECT id, seller_email, seller_name, shop_name, doc_type, status, rejection_reason,
+                 submitted_at, reviewed_at, reviewed_by,
+                 ${summary ? "'' AS front_image, NULL AS back_image" : 'front_image, back_image'},
+                 (COALESCE(octet_length(back_image), 0) > 0) AS has_back_image
+          FROM kyc_submissions
+          ${email ? 'WHERE lower(seller_email) = $1' : ''}
+          ORDER BY id DESC`, email ? [email] : undefined);
 
       if (res && res.rows) {
         if (res.rows.length === 0) {
           // A newly connected/empty database must not erase older verified submissions
           // that were written to the local mirror while PostgreSQL was unavailable.
-          const diskSubmissions = readDiskKyc();
+          const diskSubmissions = readFallback();
           if (diskSubmissions.length > 0) return diskSubmissions;
         }
         const mapped: KycSubmission[] = res.rows.map((r) => ({
@@ -120,6 +133,7 @@ export async function getAllKycSubmissionsServer(): Promise<KycSubmission[]> {
           docType: r.doc_type as any,
           frontImage: r.front_image,
           backImage: r.back_image || undefined,
+          ...(summary ? { hasBackImage: r.has_back_image } : {}),
           status: (r.status.toLowerCase() as any) || 'pending',
           rejectionReason: r.rejection_reason || undefined,
           submittedAt: r.submitted_at instanceof Date ? r.submitted_at.toISOString() : String(r.submitted_at),
@@ -127,7 +141,7 @@ export async function getAllKycSubmissionsServer(): Promise<KycSubmission[]> {
           reviewedBy: r.reviewed_by || undefined,
         }));
         // Update disk mirror
-        writeDiskKyc(mapped);
+        if (!summary && !email) writeDiskKyc(mapped);
         return mapped;
       }
     } catch (err: any) {
@@ -135,18 +149,18 @@ export async function getAllKycSubmissionsServer(): Promise<KycSubmission[]> {
     }
   }
 
-  return readDiskKyc();
+  return readFallback();
 }
 
 /**
  * Get KYC submission for a specific seller email
  */
-export async function getKycSubmissionByEmailServer(email: string): Promise<KycSubmission | null> {
+export async function getKycSubmissionByEmailServer(email: string, submissionId?: string): Promise<KycSubmission | null> {
   const normalized = (email || '').trim().toLowerCase();
   if (!normalized) return null;
 
-  const all = await getAllKycSubmissionsServer();
-  return all.find((item) => (item.sellerEmail || '').toLowerCase() === normalized) || null;
+  const submissions = await getAllKycSubmissionsServer({ email: normalized });
+  return submissionId ? submissions.find((item) => item.id === submissionId) ?? null : submissions[0] ?? null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { StoreCategoryData } from '@/data/storeCategories';
 import type { RetailListing } from '@/lib/retailListings';
 import { retailListingToProduct } from '@/lib/retailListingProduct';
-import { filterProductsByActiveStoreTaxonomy, getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
+import { filterProductsByActiveStoreTaxonomy, getStoreCategory, getStoreTaxonomyForProduct } from '@/lib/storeCatalog';
 import { isReplacementCatalogCategory } from '@/data/catalogCategoryReplacements';
 import { getStoreCategories } from '@/lib/storeCategoriesServer';
 import { readRetailListings } from '@/lib/retailListingsServer';
@@ -73,4 +73,32 @@ export async function getStorefrontCatalog(): Promise<Catalog> {
     }).finally(() => { pending = undefined; });
   }
   return pending;
+}
+
+const PAGE_SIZE = 24;
+const sorts: Record<string, (a: CatalogProduct, b: CatalogProduct) => number> = {
+  newest: (a, b) => b.createdAt.localeCompare(a.createdAt),
+  'price-low': (a, b) => a.price - b.price,
+  'price-high': (a, b) => b.price - a.price,
+  'name-asc': (a, b) => a.title.localeCompare(b.title),
+  'name-desc': (a, b) => b.title.localeCompare(a.title),
+};
+
+export async function getStorefrontCatalogPage(searchParams: URLSearchParams) {
+  const { categories, products } = await getStorefrontCatalog();
+  const category = (searchParams.get('category') || '').trim();
+  const slug = categories.some((item) => item.slug === category) ? category : getStoreCategory(category)?.slug || category;
+  const terms = (searchParams.get('search') || '').slice(0, 200).trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = products.filter((product) => {
+    if (slug && product.storeCategorySlug !== slug) return false;
+    if (!terms.length) return true;
+    const searchable = [product.title, product.brand, product.sku, product.description, product.category].join(' ').toLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
+  const sort = searchParams.get('sort') || '';
+  if (Object.hasOwn(sorts, sort)) matches.sort(sorts[sort]);
+  const requested = Number(searchParams.get('page'));
+  const page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
+  const start = (page - 1) * PAGE_SIZE;
+  return { products: matches.slice(start, start + PAGE_SIZE), totalCount: matches.length, categoryName: categories.find((item) => item.slug === slug)?.name };
 }

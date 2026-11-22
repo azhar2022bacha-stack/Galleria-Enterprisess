@@ -12,12 +12,14 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { StorefrontProductCard } from '@/components/product/StorefrontProductCard';
 
+export type InitialShopPage = { key: string; products: CatalogProduct[]; totalCount: number; categoryName?: string };
+
 type CatalogPages = { key: string; pages: CatalogProduct[][]; totalCount: number };
 
 const countLabel = (count: number) => count.toLocaleString('en-US');
 const categoryClass = 'shrink-0 rounded-md border border-[#ded3c2] bg-[#fffdf9] px-3 py-2 text-xs font-semibold text-[color:var(--website-primary)] transition hover:border-[#ab9471] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] aria-pressed:border-[#14263d] aria-pressed:bg-[#14263d] aria-pressed:text-white';
 
-export default function StorehouseShop() {
+export default function StorehouseShop({ initialPage }: { initialPage?: InitialShopPage }) {
   const searchParams = useSearchParams();
   const initialCategory = searchParams.get('category') || searchParams.get('catalogCategory') || '';
   const [category, setCategory] = useState(initialCategory);
@@ -25,7 +27,9 @@ export default function StorehouseShop() {
   const [sort, setSort] = useState(searchParams.get('sort') === 'newest' ? 'newest' : 'default');
   const [page, setPage] = useState(1);
   const { categories, total: catalogTotal } = useStorefrontCatalog();
-  const [catalog, setCatalog] = useState<CatalogPages>();
+  const [catalog, setCatalog] = useState<CatalogPages | undefined>(() => initialPage && ({
+    key: initialPage.key, pages: [initialPage.products], totalCount: initialPage.totalCount,
+  }));
   const [retry, setRetry] = useState(0);
   const [failedRequest, setFailedRequest] = useState('');
   const { addToCart } = useCart();
@@ -105,7 +109,7 @@ export default function StorehouseShop() {
         <section aria-labelledby="shop-title" className="border border-[#e5dac8] bg-[#eee7da] px-4 py-6 sm:px-7 sm:py-8 lg:px-9 lg:py-10">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 id="shop-title" className="font-serif text-3xl leading-tight tracking-[-0.055em] text-[#14263d] sm:text-4xl lg:text-5xl">{selectedCategory?.name || 'Shop all products'}</h1>
+              <h1 id="shop-title" className="font-serif text-3xl leading-tight tracking-[-0.055em] text-[#14263d] sm:text-4xl lg:text-5xl">{selectedCategory?.name || (initialPage?.key === filters && initialPage.categoryName) || 'Shop all products'}</h1>
               <p className="mt-2 text-sm text-[#525b65]" aria-live="polite">
                 {!isLoading && !error && countLabel(totalCount) + (search.trim() ? ' matching products' : ' products')}
               </p>

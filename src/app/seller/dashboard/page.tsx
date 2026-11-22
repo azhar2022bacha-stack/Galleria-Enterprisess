@@ -364,7 +364,7 @@ export default function SellerDashboardPage() {
   const [approvalViewed, setApprovalViewed] = useState(false);
   const [grantedFunds, setGrantedFunds] = useState(0);
   const [retailGrossSales, setRetailGrossSales] = useState(0);
-  const [storeTraffic, setStoreTraffic] = useState({ visits: 0, exposure: 0 });
+  const [platformExposure, setPlatformExposure] = useState(0);
   const prevApprovedRef = React.useRef<boolean | null>(null);
   const currentEmailRef = React.useRef<string>('');
   const seenSellerNotificationIdsRef = React.useRef<Set<string> | null>(null);
@@ -504,7 +504,7 @@ export default function SellerDashboardPage() {
             setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
             setGrantedFunds(Number(data.seller.grantedFunds) || 0);
             setRetailGrossSales(Number(data.seller.retailGrossSales) || 0);
-            setStoreTraffic({ visits: Number(data.seller.storeTraffic?.visits) || 0, exposure: Number(data.seller.storeTraffic?.exposure) || 0 });
+            setPlatformExposure(Number(data.seller.storeTraffic?.exposure) || 0);
 
             const isNowApproved = st === 'approved' && idSt === 'Verified' && Boolean(data.seller.isApproved);
             if (prevApprovedRef.current === false && isNowApproved) {
@@ -1587,14 +1587,11 @@ export default function SellerDashboardPage() {
                 </div>
               </div>
 
-              <dl className="grid grid-cols-2 gap-4 rounded-2xl border border-purple-200/80 bg-[#faf5ff] p-5 shadow-sm">
+              <dl className="relative isolate overflow-hidden rounded-2xl bg-gradient-to-br from-[#352066] via-[#503187] to-[#60439a] px-6 py-5 text-white shadow-sm">
+                <div aria-hidden="true" className="pointer-events-none absolute -right-12 -top-24 -z-10 h-52 w-52 rounded-full border border-white/15 ring-[24px] ring-white/5" />
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-[#7c3aed]">Store Visits</dt>
-                  <dd className="mt-1 text-3xl font-bold text-[#7c3aed]">{storeTraffic.visits.toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-[#7c3aed]">Platform Exposure</dt>
-                  <dd className="mt-1 text-3xl font-bold text-[#7c3aed]">{storeTraffic.exposure.toLocaleString()}</dd>
+                  <dt className="text-sm font-semibold text-violet-100">Visitor Explorer Platform</dt>
+                  <dd className="mt-2 break-words text-4xl font-bold tracking-tight tabular-nums">{platformExposure.toLocaleString()}</dd>
                 </div>
               </dl>
 

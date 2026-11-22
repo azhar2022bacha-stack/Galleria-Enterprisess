@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Loader2,
   Sparkles,
   Wallet,
   X,
@@ -97,6 +98,8 @@ export function SellerWalletPanel({
   const [depositReceipt, setDepositReceipt] = useState<{name:string;url:string}|null>(null);
   const [receiptLoading,setReceiptLoading] = useState(false);
   const [depositModalOpen, setDepositModalOpen] = useState(false);
+  const submissionInFlight = React.useRef(false);
+  const [submittingDeposit, setSubmittingDeposit] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
   // Withdraw form state
@@ -177,18 +180,49 @@ export function SellerWalletPanel({
     }
   };
 
-  const handleSimulatePayment = async () => {
-    if (!depositReceipt || receiptLoading) { notify('Please upload your payment receipt first.'); return; }
-    if (!activeDepositAddress) { notify('This deposit address is not configured. Contact Admin before sending crypto.'); return; }
-    const amt = parseFloat(topUpAmount) || 100;
+  const handleSubmitDeposit = async () => {
+    if (submissionInFlight.current || receiptLoading || !depositReceipt || !activeDepositAddress) return;
+    const amount = Number(topUpAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify('Please enter a valid deposit amount.');
+      return;
+    }
+
+    submissionInFlight.current = true;
+    setSubmittingDeposit(true);
     try {
-    const seller=JSON.parse(localStorage.getItem('galleria_active_seller')||'{}');
-    const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:seller.email,name:seller.shopName||seller.fullName,amount:amt,network:topUpNetwork,walletAddress:activeDepositAddress,receipt:depositReceipt})});
-    const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to submit deposit.');
-    localStorage.setItem('galleria_admin_todo_signal', String(Date.now()));
-    } catch(e:any){notify(e.message);return;}
-    setDepositModalOpen(false);
-    notify(`Deposit of ${money(amt)} via ${topUpNetwork} submitted for admin review.`);
+      const seller = JSON.parse(localStorage.getItem('galleria_active_seller') || '{}');
+      const response = await fetch('/api/recharges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: seller.email,
+          name: seller.shopName || seller.fullName,
+          amount,
+          network: topUpNetwork,
+          walletAddress: activeDepositAddress,
+          receipt: depositReceipt,
+        }),
+      });
+      if (!response.ok) {
+        const details = await response.json().catch(() => null);
+        throw new Error(details?.error || 'Unable to submit deposit.');
+      }
+
+      // The successful response includes a copy of the uploaded receipt.
+      void response.body?.cancel().catch(() => {});
+      setDepositReceipt(null);
+      setDepositModalOpen(false);
+      try {
+        localStorage.setItem('galleria_admin_todo_signal', String(Date.now()));
+      } catch { /* The recharge is already saved if browser storage is unavailable. */ }
+      notify(`Deposit of ${money(amount)} via ${topUpNetwork} submitted for admin review.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Unable to submit deposit.');
+    } finally {
+      submissionInFlight.current = false;
+      setSubmittingDeposit(false);
+    }
   };
 
   const handleRequestWithdrawal = (e: React.FormEvent) => {
@@ -614,14 +648,15 @@ export function SellerWalletPanel({
       {depositModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
-          onClick={() => setDepositModalOpen(false)}
+          onClick={() => { if (!submissionInFlight.current) setDepositModalOpen(false); }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 sm:p-4 animate-slideUp relative"
           >
             <button
-              onClick={() => setDepositModalOpen(false)}
+              disabled={submittingDeposit}
+              onClick={() => { if (!submissionInFlight.current) setDepositModalOpen(false); }}
               className="absolute right-4 top-4 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
             >
               <X className="w-4 h-4" />
@@ -683,27 +718,29 @@ export function SellerWalletPanel({
             <div className="mt-4 rounded-xl border border-gray-200 p-2">
               <label htmlFor="crypto-deposit-receipt" className="block text-xs font-bold text-gray-800 mb-2">Upload receipt <span className="text-red-500">*</span></label>
               <p className="text-[11px] text-gray-500 mb-1">Payment screenshot: PNG, JPEG or WebP, up to 5 MB.</p>
-              <input id="crypto-deposit-receipt" type="file" accept="image/png,image/jpeg,image/webp" className="w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700" onChange={e=>{
+              <input id="crypto-deposit-receipt" disabled={submittingDeposit} type="file" accept="image/png,image/jpeg,image/webp" className="w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700" onChange={e=>{
                 const file=e.target.files?.[0];setDepositReceipt(null);if(!file)return;
                 if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5*1024*1024){notify('Choose a PNG, JPEG or WebP receipt smaller than 5 MB.');e.target.value='';return;}
                 setReceiptLoading(true);const reader=new FileReader();reader.onload=()=>{setDepositReceipt({name:file.name,url:String(reader.result)});setReceiptLoading(false);};reader.onerror=()=>{setReceiptLoading(false);notify('Unable to read the receipt. Please try again.');};reader.readAsDataURL(file);
               }}/>
               {receiptLoading&&<p className="text-xs text-gray-500 mt-2">Loading receipt…</p>}
-              {depositReceipt&&<div className="mt-1 flex items-center gap-2"><img src={depositReceipt.url} alt="Payment receipt preview" className="max-h-14 mx-auto rounded-lg object-contain"/><p className="text-[11px] text-emerald-700 mt-2 break-all">{depositReceipt.name}</p><button type="button" onClick={()=>setDepositReceipt(null)} className="text-xs text-red-600 mt-1">Remove receipt</button></div>}
+              {depositReceipt&&<div className="mt-1 flex items-center gap-2"><img src={depositReceipt.url} alt="Payment receipt preview" className="max-h-14 mx-auto rounded-lg object-contain"/><p className="text-[11px] text-emerald-700 mt-2 break-all">{depositReceipt.name}</p><button type="button" disabled={submittingDeposit} onClick={()=>setDepositReceipt(null)} className="text-xs text-red-600 mt-1">Remove receipt</button></div>}
             </div>
             <div className="mt-2 flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleSimulatePayment}
-                disabled={!activeDepositAddress || !depositReceipt || receiptLoading}
+                onClick={handleSubmitDeposit}
+                aria-busy={submittingDeposit}
+                disabled={submittingDeposit || !activeDepositAddress || !depositReceipt || receiptLoading}
                 className="flex-1 disabled:opacity-40 disabled:cursor-not-allowed py-2 bg-[#0f172a] hover:bg-black text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>Confirm &amp; Continue</span>
+                {submittingDeposit ? <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                <span aria-live="polite">{submittingDeposit ? 'Submitting…' : 'Confirm & Continue'}</span>
               </button>
               <button
                 type="button"
-                onClick={() => setDepositModalOpen(false)}
+                disabled={submittingDeposit}
+                onClick={() => { if (!submissionInFlight.current) setDepositModalOpen(false); }}
                 className="px-4 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors"
               >
                 Cancel

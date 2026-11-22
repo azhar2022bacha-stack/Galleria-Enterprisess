@@ -365,6 +365,7 @@ export default function SellerDashboardPage() {
   const [approvalViewed, setApprovalViewed] = useState(false);
   const [grantedFunds, setGrantedFunds] = useState(0);
   const [retailGrossSales, setRetailGrossSales] = useState(0);
+  const [creditScore, setCreditScore] = useState(100);
   const [platformExposure, setPlatformExposure] = useState(0);
   const prevApprovedRef = React.useRef<boolean | null>(null);
   const currentEmailRef = React.useRef<string>('');
@@ -505,6 +506,7 @@ export default function SellerDashboardPage() {
             setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
             setGrantedFunds(Number(data.seller.grantedFunds) || 0);
             setRetailGrossSales(Number(data.seller.retailGrossSales) || 0);
+            setCreditScore(data.seller.storeTraffic?.creditScore ?? 100);
             setPlatformExposure(Number(data.seller.storeTraffic?.exposure) || 0);
 
             const isNowApproved = st === 'approved' && idSt === 'Verified' && Boolean(data.seller.isApproved);
@@ -1172,7 +1174,7 @@ export default function SellerDashboardPage() {
                     {merchantName}
                   </span>
                   <span className="px-1.5 py-0.2 rounded-full bg-[#0e2a22] border border-[#10b981]/40 text-[#10b981] text-[9.5px] font-bold shrink-0">
-                    100
+                    {creditScore.toLocaleString()}
                   </span>
                 </div>
                 <p className="text-[10px] text-gray-400 font-normal">Seller marketplace</p>
@@ -1402,7 +1404,7 @@ export default function SellerDashboardPage() {
                       {merchantName}
                     </h1>
                     <span className="px-2.5 py-0.5 rounded-full bg-[#e6f9f0] border border-[#a7f3d0] text-[#059669] text-xs font-semibold">
-                      Credit score 100
+                      Credit score {creditScore.toLocaleString()}
                     </span>
                   </div>
                   <p className="mt-1 max-w-prose whitespace-pre-wrap break-words text-xs text-gray-500 sm:text-sm">

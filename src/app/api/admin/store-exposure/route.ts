@@ -17,9 +17,12 @@ export async function POST(request: Request) {
   if (!await getRequestAdmin(request)) return NextResponse.json({ error: 'Admin sign-in is required.' }, { status: 401 });
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
-  const { action, amount = 0, intervalMinutes = 0 } = body ?? {};
-  if (action !== 'add' && action !== 'reduce' && action !== 'clear' && action !== 'schedule' && action !== 'stop') {
+  const { action, amount, intervalMinutes = 0 } = body ?? {};
+  if (action !== 'add' && action !== 'reduce' && action !== 'clear' && action !== 'schedule' && action !== 'stop' && action !== 'set-score') {
     return NextResponse.json({ error: 'Choose a valid action.' }, { status: 400 });
+  }
+  if (action === 'set-score' && (!Number.isSafeInteger(amount) || amount < 0)) {
+    return NextResponse.json({ error: 'Enter a non-negative whole-number score.' }, { status: 400 });
   }
   if ((action === 'add' || action === 'reduce' || action === 'schedule') &&
       (!Number.isSafeInteger(amount) || amount < 1 || amount > 100_000)) {

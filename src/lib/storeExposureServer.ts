@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 type Schedule = { startedAt: number; intervalMinutes: number; limit: number };
-type Entry = { visits: number; exposure: number; schedule?: Schedule };
+type Entry = { visits: number; exposure: number; creditScore?: number; schedule?: Schedule };
 const file = path.join(process.cwd(), 'src', 'data', 'store_exposure.json');
 
 function read(): Map<string, Entry> {
@@ -40,6 +40,7 @@ function summary(entry: Entry) {
   const added = scheduledCount(entry.schedule);
   const schedule = entry.schedule;
   return {
+    creditScore: entry.creditScore ?? 100,
     visits: entry.visits,
     exposure: entry.exposure + added,
     schedule: schedule ? { intervalMinutes: schedule.intervalMinutes, remaining: schedule.limit - added, limit: schedule.limit } : null,
@@ -54,23 +55,25 @@ export function recordStoreVisit(email: string) {
   update(email, (entry) => ({ ...entry, visits: entry.visits + 1 }));
 }
 
-export function changeStoreExposure(email: string, action: 'add' | 'reduce' | 'clear' | 'schedule' | 'stop', amount: number, intervalMinutes: number) {
+export function changeStoreExposure(email: string, action: 'add' | 'reduce' | 'clear' | 'schedule' | 'stop' | 'set-score', amount: number, intervalMinutes: number) {
   return summary(update(email, (entry) => {
-    if (action === 'clear') return { visits: entry.visits, exposure: 0 };
+    if (action === 'set-score') return { ...entry, creditScore: amount };
+    const { schedule: previousSchedule, ...base } = entry;
+    if (action === 'clear') return { ...base, exposure: 0 };
     if (action === 'add') return { ...entry, exposure: entry.exposure + amount };
-    const accrued = scheduledCount(entry.schedule);
+    const accrued = scheduledCount(previousSchedule);
     const total = entry.exposure + accrued;
     if (action === 'reduce') {
-      const schedule = entry.schedule;
+      const schedule = previousSchedule;
       const remaining = schedule ? schedule.limit - accrued : 0;
       return {
-        visits: entry.visits,
+        ...base,
         exposure: Math.max(0, total - amount),
         ...(schedule && remaining > 0 ? { schedule: { ...schedule, startedAt: schedule.startedAt + accrued * schedule.intervalMinutes * 60_000, limit: remaining } } : {}),
       };
     }
     return {
-      visits: entry.visits,
+      ...base,
       exposure: total,
       ...(action === 'schedule' ? { schedule: { startedAt: Date.now(), intervalMinutes, limit: amount } } : {}),
     };

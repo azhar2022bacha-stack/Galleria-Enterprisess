@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react';
 
 type Seller = { email: string; name: string };
-type Summary = { visits: number; exposure: number; schedule: { intervalMinutes: number; remaining: number; limit: number } | null };
-type Action = 'add' | 'reduce' | 'clear' | 'schedule' | 'stop';
+type Summary = { creditScore: number; visits: number; exposure: number; schedule: { intervalMinutes: number; remaining: number; limit: number } | null };
+type Action = 'add' | 'reduce' | 'clear' | 'schedule' | 'stop' | 'set-score';
 
 export function AdminStoreExposureView() {
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [directoryLoaded, setDirectoryLoaded] = useState(false);
   const [email, setEmail] = useState('');
   const [summary, setSummary] = useState<Summary>();
+  const [score, setScore] = useState('');
   const [amount, setAmount] = useState(5);
   const [minutes, setMinutes] = useState(10);
   const [limit, setLimit] = useState(10);
@@ -57,11 +58,12 @@ export function AdminStoreExposureView() {
       const response = await fetch('/api/admin/store-exposure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, action, amount: action === 'schedule' ? limit : amount, intervalMinutes: minutes }),
+        body: JSON.stringify({ email, action, amount: action === 'set-score' ? Number(score) : action === 'schedule' ? limit : amount, intervalMinutes: minutes }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not update exposure.');
       setSummary(data);
+      if (action === 'set-score') setScore('');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not update exposure.');
     } finally {
@@ -78,6 +80,7 @@ export function AdminStoreExposureView() {
         Registered seller
         <select className={input + ' w-full'} value={email} disabled={busy} onChange={(event) => {
           setSummary(undefined);
+          setScore('');
           setError('');
           setEmail(event.target.value);
         }}>
@@ -93,6 +96,12 @@ export function AdminStoreExposureView() {
             <div><dt>Store Visits</dt><dd className="text-xl font-semibold">{summary.visits.toLocaleString()}</dd></div>
             <div><dt>Platform Exposure</dt><dd className="text-xl font-semibold">{summary.exposure.toLocaleString()}</dd></div>
           </dl>
+          <fieldset disabled={busy} className="flex flex-wrap items-end gap-2">
+            <legend className="font-semibold">Visitor Ranking / Credit Score</legend>
+            <p className="w-full text-slate-600">Current score: {summary.creditScore.toLocaleString()}</p>
+            <label>New score<input className={input + ' w-36'} type="number" min={0} step={1} value={score} onChange={(event) => setScore(event.target.value)} /></label>
+            <button type="button" className={button} disabled={!score || !Number.isSafeInteger(Number(score)) || Number(score) < 0} onClick={() => void change('set-score')}>Save score</button>
+          </fieldset>
           <fieldset disabled={busy} className="flex flex-wrap items-end gap-2">
             <label>Exposure amount<input className={input + ' w-32'} type="number" min={1} max={100000} value={amount} onChange={(event) => setAmount(event.target.valueAsNumber || 0)} /></label>
             <button type="button" className={button} onClick={() => void change('add')}>Add</button>

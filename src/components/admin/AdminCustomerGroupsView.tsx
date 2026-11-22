@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   X,
@@ -111,6 +112,11 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'default' | 'title_asc' | 'members_high' | 'created_newest'>('default');
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const menuId = useDismissMenusOnOutsideClick(isFilterOpen || isSortOpen || actionMenuId !== null, () => {
+    setIsFilterOpen(false);
+    setIsSortOpen(false);
+    setActionMenuId(null);
+  });
 
   // Modal states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -215,7 +221,7 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
           {/* Right Controls: Filter Icon, Sort Icon, Search Bar, Create Button */}
           <div className="flex items-center gap-2">
             {/* Filter Icon Button */}
-            <div className="relative">
+            <div className="relative" data-click-away-menu={isFilterOpen ? menuId : undefined}>
               <button
                 onClick={() => {
                   setIsFilterOpen((prev) => !prev);
@@ -249,7 +255,7 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
             </div>
 
             {/* Sort Icon Button */}
-            <div className="relative">
+            <div className="relative" data-click-away-menu={isSortOpen ? menuId : undefined}>
               <button
                 onClick={() => {
                   setIsSortOpen((prev) => !prev);
@@ -331,7 +337,7 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
         {/* Sub-toolbar Row matching screenshot: Funnel on far left, Sort on far right */}
         <div className="px-5 sm:px-6 py-2.5 flex items-center justify-between bg-white border-b border-gray-200">
           {/* Sub Funnel Button on left */}
-          <button
+          <button data-click-away-menu={isFilterOpen ? menuId : undefined}
             onClick={() => setIsFilterOpen((prev) => !prev)}
             className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
             title="Filter view"
@@ -340,7 +346,7 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
           </button>
 
           {/* Sub Sort Button on right */}
-          <button
+          <button data-click-away-menu={isSortOpen ? menuId : undefined}
             onClick={() => setIsSortOpen((prev) => !prev)}
             className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
             title="Sort view"
@@ -390,7 +396,7 @@ export function AdminCustomerGroupsView({ notify }: AdminCustomerGroupsViewProps
                     <td className="py-3.5 px-4 sm:px-6 text-gray-600 font-normal">
                       {g.createdAt}
                     </td>
-                    <td className="py-3.5 px-5 sm:px-6 text-right relative">
+                    <td className="py-3.5 px-5 sm:px-6 text-right relative" data-click-away-menu={actionMenuId === g.id ? menuId : undefined}>
                       <button
                         onClick={() => setActionMenuId(actionMenuId === g.id ? null : g.id)}
                         className="p-1 rounded text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors"

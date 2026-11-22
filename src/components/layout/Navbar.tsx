@@ -1,5 +1,6 @@
 'use client';
 
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -43,26 +44,9 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<'shop' | 'deals' | null>(null);
-  const dropdownRef = useRef<HTMLElement>(null);
+  const desktopMenuId = useDismissMenusOnOutsideClick(activeDropdown !== null, () => setActiveDropdown(null));
+  const mobileMenuId = useDismissMenusOnOutsideClick(mobileMenuOpen, () => setMobileMenuOpen(false));
   const categoryDialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!dropdownRef.current?.contains(event.target as Node)) setActiveDropdown(null);
-    };
-    const closeMenus = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !categoryDialogRef.current?.open) {
-        setActiveDropdown(null);
-        setMobileMenuOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeMenus);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeMenus);
-    };
-  }, []);
 
   useEffect(() => {
     setActiveDropdown(null);
@@ -118,6 +102,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
               aria-label="Toggle navigation menu"
               aria-expanded={mobileMenuOpen}
               aria-controls="store-mobile-navigation"
+              data-click-away-menu={mobileMenuOpen ? mobileMenuId : undefined}
             >
               {mobileMenuOpen ? <X size={21} strokeWidth={1.65} /> : <Menu size={21} strokeWidth={1.65} />}
             </button>
@@ -164,10 +149,10 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
                 <Grid2X2 size={15} strokeWidth={1.75} /> All Categories
               </button>
             )}
-            <nav ref={dropdownRef} aria-label="Main navigation" className="col-start-2 flex items-center gap-8 xl:gap-10">
+            <nav aria-label="Main navigation" className="col-start-2 flex items-center gap-8 xl:gap-10">
               <Link href="/" aria-current={pathname === '/' ? 'page' : undefined} className={navLink}>Home</Link>
               {([{ id: 'shop', label: 'Shop', links: shopLinks }, { id: 'deals', label: 'Deals', links: dealLinks }] as const).map(({ id, label, links }) => (
-                <div key={id} className="relative">
+                <div key={id} data-click-away-menu={activeDropdown === id ? desktopMenuId : undefined} className="relative">
                   <button
                     type="button"
                     aria-expanded={activeDropdown === id}
@@ -194,7 +179,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
         </div>
 
         {mobileMenuOpen && (
-          <nav id="store-mobile-navigation" aria-label="Mobile navigation" className="max-h-[60dvh] overflow-y-auto border-t border-[#e6ded0] bg-[#fffdf9] px-4 py-3 shadow-lg sm:px-8 lg:hidden">
+          <nav data-click-away-menu={mobileMenuId} id="store-mobile-navigation" aria-label="Mobile navigation" className="max-h-[60dvh] overflow-y-auto border-t border-[#e6ded0] bg-[#fffdf9] px-4 py-3 shadow-lg sm:px-8 lg:hidden">
             {[mainLinks[0], ...shopLinks, ...mainLinks.slice(1)].map(({ href, label }) => (
               <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className="flex min-h-11 items-center justify-between rounded-sm px-2 text-sm font-medium text-[#14263d] hover:bg-[#f4efe6]">
                 {label} <ChevronRight size={16} strokeWidth={1.6} />

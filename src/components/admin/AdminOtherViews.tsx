@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import { AdminAccountsView } from '@/components/admin/AdminAccountsView';
 import { AdminSupportView } from '@/components/admin/AdminSupportView';
 import { AdminWithdrawalsView } from '@/components/admin/AdminWithdrawalsView';
@@ -188,6 +189,18 @@ export function AdminOtherViews({
   const [isCreateProductTypeModalOpen, setIsCreateProductTypeModalOpen] = useState(false);
   const [newProductTypeValue, setNewProductTypeValue] = useState('');
   const [activeProductTypeActionId, setActiveProductTypeActionId] = useState<string | null>(null);
+  const menuId = useDismissMenusOnOutsideClick(
+    Boolean(isRegionFilterOpen || activeRegionActionId || activeTaxRegionActionId || activeReturnReasonActionId || activeRefundReasonActionId || activeSalesChannelActionId || activeProductTypeActionId),
+    () => {
+      setIsRegionFilterOpen(false);
+      setActiveRegionActionId(null);
+      setActiveTaxRegionActionId(null);
+      setActiveReturnReasonActionId(null);
+      setActiveRefundReasonActionId(null);
+      setActiveSalesChannelActionId(null);
+      setActiveProductTypeActionId(null);
+    },
+  );
 
   // ==========================================
   // PRODUCTS & MASTER CATALOG
@@ -1407,7 +1420,7 @@ export function AdminOtherViews({
             {/* Filter & Search Toolbar matching screenshot */}
             <div className="px-6 py-2.5 border-t border-gray-100 flex items-center justify-between bg-white relative">
               {/* Add Filter Button */}
-              <div className="relative">
+              <div className="relative" data-click-away-menu={isRegionFilterOpen ? menuId : undefined}>
                 <button
                   onClick={() => setIsRegionFilterOpen(!isRegionFilterOpen)}
                   className="px-3 py-1.5 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
@@ -1481,7 +1494,7 @@ export function AdminOtherViews({
                       <td className="px-6 py-3.5 font-normal text-gray-700">{r.name}</td>
                       <td className="px-6 py-3.5 font-normal text-gray-700">{r.countries}</td>
                       <td className="px-6 py-3.5 font-normal text-gray-700">{r.paymentProviders}</td>
-                      <td className="w-12 px-6 py-3.5 text-right relative">
+                      <td className="w-12 px-6 py-3.5 text-right relative" data-click-away-menu={activeRegionActionId === r.id ? menuId : undefined}>
                         <button
                           onClick={() => setActiveRegionActionId(activeRegionActionId === r.id ? null : r.id)}
                           className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -1674,7 +1687,7 @@ export function AdminOtherViews({
                   </div>
 
                   {/* Right: Actions */}
-                  <div className="relative">
+                  <div className="relative" data-click-away-menu={activeTaxRegionActionId === tr.id ? menuId : undefined}>
                     <button
                       onClick={() => setActiveTaxRegionActionId(activeTaxRegionActionId === tr.id ? null : tr.id)}
                       className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -1900,7 +1913,7 @@ export function AdminOtherViews({
                           <td className="px-6 py-3.5 font-mono text-gray-700">{item.value}</td>
                           <td className="px-6 py-3.5 font-medium text-gray-900">{item.label}</td>
                           <td className="px-6 py-3.5 text-gray-500">{item.description || '-'}</td>
-                          <td className="w-12 px-6 py-3.5 text-right relative">
+                          <td className="w-12 px-6 py-3.5 text-right relative" data-click-away-menu={activeReturnReasonActionId === item.id ? menuId : undefined}>
                             <button
                               onClick={() =>
                                 setActiveReturnReasonActionId(
@@ -2122,7 +2135,7 @@ export function AdminOtherViews({
                       <td className="px-6 py-3.5 font-normal text-gray-900">{item.label}</td>
                       <td className="px-6 py-3.5 font-mono text-gray-600 text-[12.5px]">{item.code}</td>
                       <td className="px-6 py-3.5 font-normal text-gray-600">{item.description}</td>
-                      <td className="w-12 px-6 py-3.5 text-right relative">
+                      <td className="w-12 px-6 py-3.5 text-right relative" data-click-away-menu={activeRefundReasonActionId === item.id ? menuId : undefined}>
                         <button
                           onClick={() =>
                             setActiveRefundReasonActionId(
@@ -2378,7 +2391,7 @@ export function AdminOtherViews({
                       </td>
                       <td className="px-6 py-3.5 font-normal text-gray-700">{sc.created}</td>
                       <td className="px-6 py-3.5 font-normal text-gray-700">{sc.updated}</td>
-                      <td className="w-12 px-6 py-3.5 text-right relative">
+                      <td className="w-12 px-6 py-3.5 text-right relative" data-click-away-menu={activeSalesChannelActionId === sc.id ? menuId : undefined}>
                         <button
                           onClick={() =>
                             setActiveSalesChannelActionId(
@@ -2600,7 +2613,7 @@ export function AdminOtherViews({
                         <tr key={pt.id} className="hover:bg-gray-50/50 transition-colors group">
                           <td className="px-6 py-3.5 font-medium text-gray-900">{pt.value}</td>
                           <td className="px-6 py-3.5 text-gray-500">{pt.productsCount} products</td>
-                          <td className="w-12 px-6 py-3.5 text-right relative">
+                          <td className="w-12 px-6 py-3.5 text-right relative" data-click-away-menu={activeProductTypeActionId === pt.id ? menuId : undefined}>
                             <button
                               onClick={() =>
                                 setActiveProductTypeActionId(

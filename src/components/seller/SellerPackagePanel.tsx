@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { sendSellerNotification } from '@/lib/sellerNotifications';
 import { ArrowRight } from 'lucide-react';
 import {
   getCurrentTier,
@@ -16,11 +17,12 @@ const money = (n: number) =>
   `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface SellerPackagePanelProps {
+  sellerEmail: string;
   onOpenWallet: () => void;
   notify?: (msg: string) => void;
 }
 
-export function SellerPackagePanel({ onOpenWallet, notify }: SellerPackagePanelProps) {
+export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: SellerPackagePanelProps) {
   const [wallet, setWallet] = useState(0);
   const [currentTierId, setCurrentTierId] = useState<PackageTierId>('free');
   const [packageSpend, setPackageSpend] = useState(0);
@@ -35,7 +37,7 @@ export function SellerPackagePanel({ onOpenWallet, notify }: SellerPackagePanelP
     return subscribeToOrders(refresh);
   }, []);
 
-  const handleTierClick = (targetTierId: PackageTierId) => {
+  const handleTierClick = async (targetTierId: PackageTierId) => {
     if (targetTierId === currentTierId) return;
 
     const targetTier = PACKAGE_TIERS.find((t) => t.id === targetTierId);
@@ -53,7 +55,18 @@ export function SellerPackagePanel({ onOpenWallet, notify }: SellerPackagePanelP
 
     const res = upgradePackageTier(targetTierId);
     if (res.success) {
-      notify?.(`Congratulations! You have upgraded to ${targetTier.name}.`);
+      const title = `Upgraded to ${targetTier.name}`;
+      const message = `You can now add up to ${targetTier.productLimit.toLocaleString()} products.`;
+      const sent = await sendSellerNotification({
+        sellerEmail,
+        title,
+        message: [{ text: message }],
+        tone: 'success',
+        category: 'Account Updates',
+        href: '/seller/dashboard?tab=package',
+        dedupeKey: `package-upgrade:${targetTier.id}`,
+      });
+      if (!sent) notify?.(`${title}. ${message}`);
     } else {
       notify?.(res.error || 'Failed to upgrade tier.');
     }

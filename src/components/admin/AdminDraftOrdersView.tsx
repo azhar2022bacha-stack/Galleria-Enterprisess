@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   Filter,
@@ -101,6 +102,10 @@ export function AdminDraftOrdersView({ notify }: AdminDraftOrdersViewProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
+  const menuId = useDismissMenusOnOutsideClick(isFilterOpen || isSortOpen, () => {
+    setIsFilterOpen(false);
+    setIsSortOpen(false);
+  });
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'completed'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'total_high' | 'total_low'>('newest');
 
@@ -254,7 +259,7 @@ export function AdminDraftOrdersView({ notify }: AdminDraftOrdersViewProps) {
             </div>
 
             {/* Filter Funnel Button */}
-            <div className="relative">
+            <div className="relative" data-click-away-menu={isFilterOpen ? menuId : undefined}>
               <button
                 onClick={() => {
                   setIsFilterOpen((prev) => !prev);
@@ -317,7 +322,7 @@ export function AdminDraftOrdersView({ notify }: AdminDraftOrdersViewProps) {
             </div>
 
             {/* Sort / Reorder Icon Button */}
-            <div className="relative">
+            <div className="relative" data-click-away-menu={isSortOpen ? menuId : undefined}>
               <button
                 onClick={() => {
                   setIsSortOpen((prev) => !prev);

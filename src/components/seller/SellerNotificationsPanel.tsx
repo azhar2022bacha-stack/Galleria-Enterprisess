@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Image as ImageIcon, X } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -12,6 +13,7 @@ import {
 import {
   fetchSellerNotifications,
   markSellerNotificationRead,
+  SELLER_NOTIFICATIONS_CHANGED,
   SellerNotification,
 } from '@/lib/sellerNotifications';
 
@@ -38,6 +40,8 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
   const [messages, setMessages] = useState<SellerNotification[]>([]);
   const [notificationsError, setNotificationsError] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<SellerNotification | null>(null);
+  const detailDialogRef = useRef<HTMLDivElement>(null);
+  const detailAnchorRef = useRef({ x: 0, y: 0 });
 
   // Message operations form state
   const [category, setCategory] = useState('Shop / account');
@@ -95,10 +99,12 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
     void initialize();
     const onFocus = () => { if (activeEmail) void loadNotifications(activeEmail); };
     window.addEventListener('focus', onFocus);
+    window.addEventListener(SELLER_NOTIFICATIONS_CHANGED, onFocus);
     return () => {
       active = false;
       if (notificationTimer) clearInterval(notificationTimer);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener(SELLER_NOTIFICATIONS_CHANGED, onFocus);
       unsubscribe();
     };
   }, []);
@@ -119,7 +125,38 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
     }
   };
 
-  const openMessage = (message: SellerNotification) => {
+  useLayoutEffect(() => {
+    const dialog = detailDialogRef.current;
+    if (!selectedMessage || !dialog) return;
+
+    const position = () => {
+      const { x, y } = detailAnchorRef.current;
+      const { width, height } = dialog.getBoundingClientRect();
+      const margin = 16;
+      const gap = 8;
+      const right = window.innerWidth - width - margin;
+      const bottom = window.innerHeight - height - margin;
+      dialog.style.left = Math.max(margin, Math.min(x + gap <= right ? x + gap : x - width - gap, right)) + 'px';
+      dialog.style.top = Math.max(margin, Math.min(y + gap <= bottom ? y + gap : y - height - gap, bottom)) + 'px';
+    };
+
+    position();
+    dialog.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+    const observer = new ResizeObserver(position);
+    observer.observe(dialog);
+    window.addEventListener('resize', position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position);
+    };
+  }, [selectedMessage]);
+
+  const openMessage = (event: React.MouseEvent, message: SellerNotification) => {
+    event.stopPropagation();
+    const trigger = event.currentTarget.getBoundingClientRect();
+    detailAnchorRef.current = event.detail === 0
+      ? { x: trigger.left, y: trigger.bottom }
+      : { x: event.clientX, y: event.clientY };
     if (!message.readAt) {
       setSelectedMessage({ ...message, readAt: new Date().toISOString() });
       void markRead(message.id);
@@ -199,7 +236,7 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
           <div className="space-y-3">
             {messages.map((m) => (
               <article key={m.id} className={`rounded-xl border p-3.5 transition-colors hover:shadow-sm ${m.readAt ? 'border-gray-200 bg-white' : 'border-blue-200 bg-blue-50/40'}`}>
-                <button type="button" aria-label={`Open notification details: ${m.title}`} onClick={() => openMessage(m)} className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+                <button type="button" aria-label={`Open notification details: ${m.title}`} onClick={(event) => openMessage(event, m)} className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
                   <div className="flex items-start gap-3">
                     <span className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${notificationToneClasses(m.tone)}`}>
                       {m.category}
@@ -220,7 +257,7 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
                     <strong className="font-semibold text-gray-700">{m.sender}</strong> · {formatNotificationDate(m.createdAt)}
                   </span>
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => openMessage(m)} className="font-semibold text-blue-700 hover:text-blue-900">View details →</button>
+                    <button type="button" onClick={(event) => openMessage(event, m)} className="font-semibold text-blue-700 hover:text-blue-900">View details →</button>
                     {!m.readAt && <button type="button" onClick={() => void markRead(m.id)} className="font-semibold text-gray-500 hover:text-gray-800">Mark read</button>}
                   </div>
                 </div>
@@ -352,18 +389,24 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
       </div>
 
       {/* Message Detail Modal */}
-      {selectedMessage && (
+      {selectedMessage && createPortal(
         <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm animate-fadeIn"
           onClick={() => setSelectedMessage(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 animate-slideUp relative"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="seller-notification-dialog-title"
+            ref={detailDialogRef}
+            onKeyDown={(event) => { if (event.key === 'Escape') setSelectedMessage(null); }}
+            className="fixed w-[calc(100vw-2rem)] max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
           >
             <button
               onClick={() => setSelectedMessage(null)}
               className="absolute right-4 top-4 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              aria-label="Close notification details"
             >
               <X className="w-4 h-4" />
             </button>
@@ -372,7 +415,7 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
               {selectedMessage.category}
             </span>
 
-            <h3 className="text-base font-bold text-gray-900 mt-2">{selectedMessage.title}</h3>
+            <h3 id="seller-notification-dialog-title" className="text-base font-bold text-gray-900 mt-2">{selectedMessage.title}</h3>
             <p className="text-[11px] text-gray-400 font-mono mt-0.5">{selectedMessage.sender} · {formatNotificationDate(selectedMessage.createdAt)}</p>
 
             <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
@@ -411,7 +454,8 @@ export function SellerNotificationsPanel({ notify }: SellerNotificationsPanelPro
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

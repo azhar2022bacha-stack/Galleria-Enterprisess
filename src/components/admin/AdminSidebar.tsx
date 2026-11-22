@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import Link from 'next/link';
 import { SupportUnreadBadge } from '@/components/support/SupportUnreadBadge';
 import { DisputeUnreadBadge } from '@/components/disputes/DisputeUnreadBadge';
@@ -164,6 +165,7 @@ export function AdminSidebar({
     };
   }, []);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuId = useDismissMenusOnOutsideClick(isMenuOpen, () => setIsMenuOpen(false));
 
   // Settings: General Sub-items strictly matching uploaded screenshot
   const generalSettingsItems: { id: SettingsSubTab; label: string }[] = [
@@ -386,7 +388,7 @@ export function AdminSidebar({
     <aside data-admin-sidebar className="w-64 sm:w-70 bg-[#fbfbfc] border-r border-gray-200 text-gray-700 flex flex-col justify-between shrink-0 min-h-screen sticky top-0 h-screen overflow-y-auto select-none">
       <div>
         {/* Top Store Selector Header */}
-        <div className="p-3.5 pb-2 border-b border-gray-100 relative">
+        <div className="p-3.5 pb-2 border-b border-gray-100 relative" data-click-away-menu={isMenuOpen ? menuId : undefined}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-6 h-6 rounded-md bg-gray-100 border border-gray-300 flex items-center justify-center text-xs font-bold text-gray-800 shadow-xs">

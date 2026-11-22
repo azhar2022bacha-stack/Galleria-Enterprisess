@@ -1,5 +1,7 @@
 'use client';
 
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
+import { SELLER_NOTIFICATIONS_CHANGED, sendSellerNotification } from '@/lib/sellerNotifications';
 import React, { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { SupportUnreadBadge } from '@/components/support/SupportUnreadBadge';
@@ -360,10 +362,12 @@ export default function SellerDashboardPage() {
   const currentEmailRef = React.useRef<string>('');
   const seenSellerNotificationIdsRef = React.useRef<Set<string> | null>(null);
   const productsRef = React.useRef<ProductItem[]>([]);
+  const bulkProductWritesRef = React.useRef({ pending: 0, revision: 0 });
 
   useEffect(() => {
     let active = true;
     let requestInFlight = false;
+    let refreshPending = false;
     const refreshUnreadCount = async () => {
       if (!active || requestInFlight || document.visibilityState === 'hidden') return;
       let email = currentEmailRef.current;
@@ -408,16 +412,26 @@ export default function SellerDashboardPage() {
         );
       } catch {} finally {
         requestInFlight = false;
+        if (refreshPending) {
+          refreshPending = false;
+          void refreshUnreadCount();
+        }
       }
+    };
+    const refreshAfterNotification = () => {
+      if (requestInFlight) refreshPending = true;
+      else void refreshUnreadCount();
     };
     void refreshUnreadCount();
     const timer = setInterval(() => { void refreshUnreadCount(); }, 30_000);
     window.addEventListener('focus', refreshUnreadCount);
+    window.addEventListener(SELLER_NOTIFICATIONS_CHANGED, refreshAfterNotification);
     document.addEventListener('visibilitychange', refreshUnreadCount);
     return () => {
       active = false;
       clearInterval(timer);
       window.removeEventListener('focus', refreshUnreadCount);
+      window.removeEventListener(SELLER_NOTIFICATIONS_CHANGED, refreshAfterNotification);
       document.removeEventListener('visibilitychange', refreshUnreadCount);
     };
   }, []);
@@ -506,10 +520,12 @@ export default function SellerDashboardPage() {
                 setAddedStorehouseIds(loadedProds.map((p) => p.id));
               }
               try {
+                const { pending, revision } = bulkProductWritesRef.current;
                 const savedResponse = await fetch(`/api/seller/products?email=${encodeURIComponent(finalEmail)}`, { cache: 'no-store' });
                 if (savedResponse.ok) {
                   const savedPayload = await savedResponse.json();
-                  if (savedPayload.authoritative && Array.isArray(savedPayload.products)) {
+                  if (!pending && revision === bulkProductWritesRef.current.revision
+                    && savedPayload.authoritative && Array.isArray(savedPayload.products)) {
                     const savedProducts = savedPayload.products as ProductItem[];
                     const savedIds = new Set(savedProducts.map((product) => product.id));
                     const localIds = new Set(loadedProds.map((product) => product.id));
@@ -620,6 +636,7 @@ export default function SellerDashboardPage() {
   // Modals state
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const sellerMenuId = useDismissMenusOnOutsideClick(isMobileNavOpen, () => setIsMobileNavOpen(false));
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderItem | null>(null);
   const [showNotificationToast, setShowNotificationToast] = useState<string | null>(null);
   const notificationToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -628,7 +645,29 @@ export default function SellerDashboardPage() {
   }, []);
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState('0.00');
-  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      const response = await fetch('/api/seller/logout', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (!response.ok) throw new Error('Could not clear the seller session.');
+    } catch {
+      setIsLoggingOut(false);
+      notify('Could not sign out. Please try again.');
+      return;
+    }
+
+    try {
+      localStorage.removeItem('galleria_active_seller');
+    } finally {
+      window.location.replace('/seller?mode=signin');
+    }
+  };
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
 
   // Storehouse state
@@ -636,7 +675,15 @@ export default function SellerDashboardPage() {
   const [hideAdded, setHideAdded] = useState(false);
   const [addedStorehouseIds, setAddedStorehouseIds] = useState<string[]>([]);
 
-  const currentTier = getCurrentPackageTier();
+  const [currentTier, setCurrentTier] = useState(() => getCurrentPackageTier());
+  useEffect(() => {
+    const refreshPackageTier = () => {
+      const nextTier = getCurrentPackageTier();
+      setCurrentTier((current) => current.id === nextTier.id ? current : nextTier);
+    };
+    refreshPackageTier();
+    return subscribeToOrders(refreshPackageTier);
+  }, []);
   const planLimit = currentTier.productLimit;
   const commissionRate = currentTier.rebatePercent;
   const productLimitMessage = `Limit reached: ${currentTier.name} allows up to ${planLimit} products.`;
@@ -705,82 +752,82 @@ export default function SellerDashboardPage() {
     });
   };
 
-  const handleAddMultipleDemoProductsToShop = (items: DemoProduct[]) => {
-    setProducts((prev) => {
-      const existingIds = new Set(prev.map((p) => p.id));
-      const unadded = items.filter((item) => !existingIds.has(item.id));
-      if (unadded.length === 0) {
-        notify('All selected products are already in your shop.');
-        return prev;
-      }
-      const slotsNeeded = Math.max(0, planLimit - prev.length);
-      if (slotsNeeded <= 0) {
-        notify(productLimitMessage);
-        return prev;
-      }
-      const toAdd = unadded.slice(0, slotsNeeded);
-      const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const newProds: ProductItem[] = toAdd.map((item) => ({
-        id: item.id,
-        title: item.title,
-        sku: item.sku,
-        category: item.category,
-        categorySlug: item.categorySlug,
-        subcategory: item.subcategory,
-        subcategorySlug: item.subcategorySlug,
-        pricePerKg: item.price,
-        minOrderKg: item.minOrderQuantity,
-        stockBags: item.stockQuantity,
-        status: item.status === 'Low Stock' ? 'Low Stock' : 'In Stock',
-        image: item.mainImage,
-        addedDate: todayStr,
-      }));
-      const updated = [...newProds, ...prev];
-      setAddedStorehouseIds(updated.map((p) => p.id));
-      saveSellerProducts(updated, currentEmailRef.current || merchantProfile.email);
-      notify(`Added ${newProds.length} products to My Products! (${updated.length}/${planLimit})`);
-      return updated;
+  const addDemoProductsToShop = async (items: DemoProduct[], append = false) => {
+    const previous = productsRef.current;
+    const slots = planLimit - previous.length;
+    if (slots <= 0) {
+      notify(productLimitMessage);
+      return;
+    }
+
+    const existingIds = new Set(previous.map((product) => product.id));
+    const toAdd: DemoProduct[] = [];
+    for (const item of items) {
+      if (existingIds.has(item.id)) continue;
+      existingIds.add(item.id);
+      toAdd.push(item);
+      if (toAdd.length === slots) break;
+    }
+    if (!toAdd.length) {
+      notify('All eligible products are already in your My Products catalog.');
+      return;
+    }
+
+    const addedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const added: ProductItem[] = toAdd.map((item) => ({
+      id: item.id,
+      title: item.title,
+      sku: item.sku,
+      category: item.category,
+      categorySlug: item.categorySlug,
+      subcategory: item.subcategory,
+      subcategorySlug: item.subcategorySlug,
+      pricePerKg: item.price,
+      minOrderKg: item.minOrderQuantity,
+      stockBags: item.stockQuantity,
+      status: item.status === 'Low Stock' ? 'Low Stock' : 'In Stock',
+      image: item.mainImage,
+      addedDate,
+    }));
+    const updated = append ? [...previous, ...added] : [...added, ...previous];
+    const sellerEmail = currentEmailRef.current || merchantProfile.email;
+    productsRef.current = updated;
+    setProducts(updated);
+    setAddedStorehouseIds(updated.map((item) => item.id));
+    const writes = bulkProductWritesRef.current;
+    writes.revision += 1;
+    writes.pending += 1;
+    const saved = await Promise.resolve().then(() => saveSellerProducts(updated, sellerEmail)).catch(() => false);
+    writes.pending -= 1;
+    if (!saved) {
+      notify('Could not sync My Products to the server. Please check your connection.');
+      return;
+    }
+
+    const title = `Added ${added.length} products to My Products`;
+    const sent = await sendSellerNotification({
+      sellerEmail,
+      title,
+      category: 'Products & Stock',
+      tone: 'success',
+      message: [{ text: `Your bulk add is complete. My Products now contains ${updated.length} of ${planLimit} products.` }],
+      href: '/seller/dashboard?tab=my_products',
     });
+    if (!sent) notify(title);
+  };
+
+  const handleAddMultipleDemoProductsToShop = (items: DemoProduct[]) => {
+    void addDemoProductsToShop(items);
   };
 
   const handleAddAllDemoProductsToShop = (excludedCategorySlugs: string[] = []) => {
-    setProducts((prev) => {
-      if (prev.length >= planLimit) {
-        notify(`Limit reached: You have already reached your ${planLimit} product limit.`);
-        return prev;
-      }
-      const slotsNeeded = planLimit - prev.length;
-      const existingIds = prev.map((p) => p.id);
-      const eligibleItems = getEligibleDemoProducts(slotsNeeded, existingIds, excludedCategorySlugs);
-
-      if (eligibleItems.length === 0) {
-        notify('All eligible products are already in your My Products catalog.');
-        return prev;
-      }
-
-      const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const newProds: ProductItem[] = eligibleItems.map((item) => ({
-        id: item.id,
-        title: item.title,
-        sku: item.sku,
-        category: item.category,
-        categorySlug: item.categorySlug,
-        subcategory: item.subcategory,
-        subcategorySlug: item.subcategorySlug,
-        pricePerKg: item.price,
-        minOrderKg: item.minOrderQuantity,
-        stockBags: item.stockQuantity,
-        status: item.status === 'Low Stock' ? 'Low Stock' : 'In Stock',
-        image: item.mainImage,
-        addedDate: todayStr,
-      }));
-
-      const updated = [...prev, ...newProds];
-      setAddedStorehouseIds(updated.map((p) => p.id));
-      saveSellerProducts(updated, currentEmailRef.current || merchantProfile.email);
-      notify(`🎉 Successfully added ${newProds.length} products to My Products! (Total: ${updated.length}/${planLimit})`);
-      return updated;
-    });
+    const previous = productsRef.current;
+    if (previous.length >= planLimit) {
+      notify(productLimitMessage);
+      return;
+    }
+    const eligible = getEligibleDemoProducts(planLimit - previous.length, previous.map((item) => item.id), excludedCategorySlugs);
+    void addDemoProductsToShop(eligible, true);
   };
 
   const handleRemoveProductFromShop = (id: string) => {
@@ -1048,6 +1095,7 @@ export default function SellerDashboardPage() {
                 type="button"
                 aria-expanded={isMobileNavOpen}
                 aria-controls="seller-mobile-nav"
+                data-click-away-menu={isMobileNavOpen ? sellerMenuId : undefined}
                 onClick={() => setIsMobileNavOpen((open) => !open)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[#263a55] bg-[#10213a] px-2.5 py-2 text-[10px] font-semibold text-gray-100 transition hover:bg-[#172b47] md:hidden"
               >
@@ -1077,7 +1125,7 @@ export default function SellerDashboardPage() {
           </div>
 
           {/* Menu Items (1 to 14) */}
-          <nav id="seller-mobile-nav" data-seller-nav className="p-3 space-y-1">
+          <nav id="seller-mobile-nav" data-click-away-menu={isMobileNavOpen ? sellerMenuId : undefined} data-seller-nav className="p-3 space-y-1">
             <span className="px-3 text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-2 mt-1">
               MENU NAVIGATION
             </span>
@@ -1159,7 +1207,7 @@ export default function SellerDashboardPage() {
         </div>
 
         {/* Bottom Menu Items */}
-        <div data-seller-footer-nav className="p-3.5 border-t border-gray-800/80 space-y-1">
+        <div data-seller-footer-nav data-click-away-menu={isMobileNavOpen ? sellerMenuId : undefined} className="p-3.5 border-t border-gray-800/80 space-y-1">
           <button
             onClick={() => void viewMyPublicStore()}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 transition-colors text-left"
@@ -1177,11 +1225,13 @@ export default function SellerDashboardPage() {
           </button>
 
           <button
-            onClick={() => setIsLogoutModalOpen(true)}
+            type="button"
+            disabled={isLoggingOut}
+            onClick={handleLogout}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800/60 transition-colors text-left"
           >
             <LogOut className="w-3.5 h-3.5 text-gray-400" />
-            <span>Log Out</span>
+            <span>{isLoggingOut ? 'Signing out…' : 'Log Out'}</span>
           </button>
         </div>
       </aside>
@@ -1756,6 +1806,7 @@ export default function SellerDashboardPage() {
           {/* ======================= VIEW 9: PACKAGE · TIER ======================= */}
           {activeNav === 'package' && (
             <SellerPackagePanel
+              sellerEmail={currentEmailRef.current || merchantProfile.email || ''}
               onOpenWallet={() => setActiveNav('wallet')}
               notify={notify}
             />
@@ -2030,47 +2081,6 @@ export default function SellerDashboardPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ======================= MODAL: LOG OUT CONFIRMATION ======================= */}
-      {isLogoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border border-gray-100 text-center">
-            <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-3">
-              <LogOut className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-sm text-gray-900">Log Out from Portal?</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              You will be signed out of {merchantName} wholesaler dashboard.
-            </p>
-            <div className="flex gap-2 mt-4 text-xs font-semibold">
-              <button
-                onClick={() => setIsLogoutModalOpen(false)}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    const response = await fetch('/api/seller/logout', { method: 'POST' });
-                    if (!response.ok) throw new Error('Could not clear the seller session.');
-                  } catch {
-                    notify('Could not sign out. Please try again.');
-                    return;
-                  }
-                  if (typeof window !== 'undefined') {
-                    localStorage.removeItem('galleria_active_seller');
-                  }
-                  router.push('/seller');
-                }}
-                className="flex-1 py-2 bg-[#cca23b] text-[#071324] font-bold rounded-lg hover:bg-[#b88e28] cursor-pointer"
-              >
-                Log Out
-              </button>
-            </div>
           </div>
         </div>
       )}

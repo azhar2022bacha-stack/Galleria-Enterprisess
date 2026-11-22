@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   SlidersHorizontal,
@@ -51,6 +52,7 @@ export function AdminOrdersView({
   const [paymentFilter, setPaymentFilter] = useState<'All' | 'Captured' | 'Pending' | 'Refunded'>('All');
   const [fulfillmentFilter, setFulfillmentFilter] = useState<'All' | 'Delivered' | 'Not fulfilled' | 'Refunded' | 'Rejected' | 'Cancelled'>('All');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const menuId = useDismissMenusOnOutsideClick(isFilterOpen, () => setIsFilterOpen(false));
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
 
   // Sync storefront orders and Consign orders, including terminal refund/rejection decisions.
@@ -255,7 +257,7 @@ export function AdminOrdersView({
 
         {/* Toolbar: Add Filter & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-          <div className="relative">
+          <div className="relative" data-click-away-menu={isFilterOpen ? menuId : undefined}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
               className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-2xs flex items-center gap-1.5"

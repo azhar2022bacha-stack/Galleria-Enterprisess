@@ -343,6 +343,14 @@ export async function readStorehouseMix(body: Record<string, unknown>): Promise<
   const [snapshotId, previousFingerprint] = token.split(':');
   const snapshot = getSnapshot(parseFilters(body), readVisibility(), snapshotId);
   const { entries, fingerprint } = await snapshot.selection;
+  if (body.bulkLimit !== undefined) {
+    const limit = Math.min(positiveInteger(body.bulkLimit, 1), STOREHOUSE_MIX_LIMIT);
+    const excluded = new Set(Array.isArray(body.bulkExcludedIds) ? body.bulkExcludedIds.slice(0, STOREHOUSE_MIX_LIMIT) : []);
+    const eligible = entries.filter((entry) => !excluded.has(entry.id));
+    const products = await readPageProducts(eligible.slice(0, limit));
+    return { snapshotId: `${snapshot.id}:${fingerprint}`, page: 1, totalCount: eligible.length, products };
+  }
+
   // A restarted worker may lose the cached selection. Preserve the page when it rebuilds the same order.
   const requestedPage = previousFingerprint && previousFingerprint !== fingerprint ? 1 : positiveInteger(body.page, 1);
   const page = Math.min(requestedPage, Math.max(1, Math.ceil(entries.length / pageSize)));

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   X,
@@ -100,6 +101,7 @@ export function AdminCategoriesView({ notify }: AdminCategoriesViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditingRanking, setIsEditingRanking] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const menuId = useDismissMenusOnOutsideClick(actionMenuId !== null, () => setActionMenuId(null));
 
   // Modal states for creating a new category
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -357,7 +359,7 @@ export function AdminCategoriesView({ notify }: AdminCategoriesViewProps) {
                     </td>
 
                     {/* Action Dropdown ... */}
-                    <td className="py-3.5 px-5 sm:px-6 text-right relative">
+                    <td className="py-3.5 px-5 sm:px-6 text-right relative" data-click-away-menu={actionMenuId === c.id ? menuId : undefined}>
                       <button
                         onClick={() => setActionMenuId(actionMenuId === c.id ? null : c.id)}
                         className="p-1 rounded text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors"

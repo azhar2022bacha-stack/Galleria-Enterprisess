@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   CheckCircle2,
@@ -203,6 +204,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
   const [merchants, setMerchants] = useState<ConsignMerchant[]>(DB_MERCHANTS);
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>('seller-disk-1');
   const [isMerchantDropdownOpen, setIsMerchantDropdownOpen] = useState(false);
+  const menuId = useDismissMenusOnOutsideClick(isMerchantDropdownOpen, () => setIsMerchantDropdownOpen(false));
 
   // Screen 1 (Part B): Products selection & Already Stock toggle
   const [isAlreadyStockView, setIsAlreadyStockView] = useState(false);
@@ -1358,7 +1360,7 @@ export function AdminConsignView({ notify, initialTab = 'consign' }: AdminConsig
 
           {/* Merchant Dropdown (Matching Screenshot 1 & 2) */}
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative w-full max-w-sm">
+            <div className="relative w-full max-w-sm" data-click-away-menu={isMerchantDropdownOpen ? menuId : undefined}>
               <button
                 id="merchant-selector-button"
                 onClick={() => setIsMerchantDropdownOpen(!isMerchantDropdownOpen)}

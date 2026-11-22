@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import {
   Search,
   X,
@@ -81,6 +82,11 @@ export function AdminPriceListsView({ notify }: AdminPriceListsViewProps) {
   const [typeFilter, setTypeFilter] = useState<'all' | 'Sale' | 'Override'>('all');
   const [sortBy, setSortBy] = useState<'default' | 'title_asc' | 'status_active'>('default');
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const menuId = useDismissMenusOnOutsideClick(isFilterOpen || isSortOpen || actionMenuId !== null, () => {
+    setIsFilterOpen(false);
+    setIsSortOpen(false);
+    setActionMenuId(null);
+  });
 
   // Modal states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -235,7 +241,7 @@ export function AdminPriceListsView({ notify }: AdminPriceListsViewProps) {
             {/* Toolbar Row */}
             <div className="px-5 sm:px-6 py-2.5 flex items-center justify-between gap-3 bg-white flex-wrap">
               {/* Add Filter Button */}
-              <div className="relative">
+              <div className="relative" data-click-away-menu={isFilterOpen ? menuId : undefined}>
                 <button
                   onClick={() => {
                     setIsFilterOpen((prev) => !prev);
@@ -319,7 +325,7 @@ export function AdminPriceListsView({ notify }: AdminPriceListsViewProps) {
                 </div>
 
                 {/* Sort Button */}
-                <div className="relative">
+                <div className="relative" data-click-away-menu={isSortOpen ? menuId : undefined}>
                   <button
                     onClick={() => {
                       setIsSortOpen((prev) => !prev);
@@ -410,7 +416,7 @@ export function AdminPriceListsView({ notify }: AdminPriceListsViewProps) {
                       <td className="py-3.5 px-4 sm:px-6 text-gray-600 font-normal">
                         {item.createdAt}
                       </td>
-                      <td className="py-3.5 px-5 sm:px-6 text-right relative">
+                      <td className="py-3.5 px-5 sm:px-6 text-right relative" data-click-away-menu={actionMenuId === item.id ? menuId : undefined}>
                         <button
                           onClick={() => setActionMenuId(actionMenuId === item.id ? null : item.id)}
                           className="p-1 rounded text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors"

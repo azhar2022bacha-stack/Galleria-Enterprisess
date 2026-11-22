@@ -24,15 +24,21 @@ export interface StorehouseFallbackScope {
 
 const CATALOG_FILE = path.join(process.cwd(), 'src', 'data', 'storehouse_catalog_fallback.json');
 
+let cachedCatalog: { mtimeMs: number; size: number; ino: number; products: StorehouseFallbackProduct[] } | undefined;
+
 function normalize(value: string): string {
   return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 export function readStorehouseFallbackProducts(): StorehouseFallbackProduct[] {
   try {
+    const { mtimeMs, size, ino } = fs.statSync(CATALOG_FILE);
+    if (cachedCatalog?.mtimeMs === mtimeMs && cachedCatalog.size === size && cachedCatalog.ino === ino) {
+      return cachedCatalog.products;
+    }
     const parsed = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is StorehouseFallbackProduct => (
+    const products = parsed.filter((item): item is StorehouseFallbackProduct => (
       Boolean(item)
       && typeof item === 'object'
       && typeof (item as StorehouseFallbackProduct).product_id === 'string'
@@ -41,8 +47,11 @@ export function readStorehouseFallbackProducts(): StorehouseFallbackProduct[] {
       && typeof (item as StorehouseFallbackProduct).sku_key === 'string'
       && typeof (item as StorehouseFallbackProduct).product_name_key === 'string'
       && typeof (item as StorehouseFallbackProduct).product_data === 'object'
-  ));
+    ));
+    cachedCatalog = { mtimeMs, size, ino, products };
+    return products;
   } catch {
+    cachedCatalog = undefined;
     return [];
   }
 }
@@ -52,6 +61,7 @@ export function writeStorehouseFallbackProducts(products: StorehouseFallbackProd
   const temporaryFile = `${CATALOG_FILE}.${process.pid}.${randomUUID()}.tmp`;
   fs.writeFileSync(temporaryFile, JSON.stringify(products, null, 2), { encoding: 'utf8', flag: 'wx' });
   fs.renameSync(temporaryFile, CATALOG_FILE);
+  cachedCatalog = undefined;
 }
 
 export function appendStorehouseFallbackProducts(products: StorehouseFallbackProduct[]): void {

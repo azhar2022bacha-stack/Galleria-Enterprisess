@@ -1,5 +1,6 @@
 'use client';
 
+import { useDismissMenusOnOutsideClick } from '@/hooks/useDismissMenusOnOutsideClick';
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -43,6 +44,7 @@ function LegacyShopContent() {
   const [minRating, setMinRating] = useState<number>(0);
   const [sortBy, setSortBy] = useState<string>(initialFeatured ? 'featured' : 'default');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const filtersMenuId = useDismissMenusOnOutsideClick(mobileFiltersOpen, () => setMobileFiltersOpen(false));
 
   useEffect(() => {
     let active = true;
@@ -161,6 +163,7 @@ function LegacyShopContent() {
             onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
             aria-expanded={mobileFiltersOpen}
             aria-controls="shop-filters"
+            data-click-away-menu={mobileFiltersOpen ? filtersMenuId : undefined}
             className="flex w-full items-center justify-center gap-2 rounded-full border border-[#e3ddcf] px-4 py-2.5 text-xs font-semibold text-[#14263d] sm:w-auto lg:hidden"
           >
             <SlidersHorizontal className="w-4 h-4" />
@@ -219,6 +222,7 @@ function LegacyShopContent() {
           {/* Sidebar Filters */}
           <aside
             id="shop-filters"
+            data-click-away-menu={mobileFiltersOpen ? filtersMenuId : undefined}
             className={`${
               mobileFiltersOpen ? 'block' : 'hidden'
             } sticky top-28 h-fit space-y-6 rounded-2xl border border-[#e9e4da] bg-white p-5 shadow-[0_12px_34px_-30px_rgba(20,38,61,0.45)] lg:col-span-1 lg:block`}

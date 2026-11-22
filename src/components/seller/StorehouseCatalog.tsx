@@ -13,7 +13,6 @@ import {
 import { queryDemoProducts, getProductById } from '@/lib/mock-products';
 import {
   HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS,
-  STOREHOUSE_MIX_BATCH_SIZE,
   type StorehouseMixFilters,
   type StorehouseMixPage,
 } from '@/lib/storehouseMix';
@@ -114,11 +113,12 @@ async function requestStorehouseMix(
   pageSize: number,
   snapshotId: string | undefined,
   signal: AbortSignal,
+  bulk?: { bulkLimit: number; bulkExcludedIds: string[] },
 ): Promise<StorehouseMixPage> {
   const response = await fetch('/api/storehouse/catalog?view=mixed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...filters, page, pageSize, snapshotId }),
+    body: JSON.stringify({ ...filters, page, pageSize, snapshotId, ...bulk }),
     cache: 'no-store',
     signal,
   });
@@ -316,7 +316,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     categoryPrefetchTimer.current = setTimeout(() => {
       categoryPrefetchTimer.current = null;
       void requestStorehouseCategory(categorySlug).catch(() => undefined);
-    }, 180);
+    }, 40);
   };
 
   useEffect(() => () => {
@@ -440,6 +440,27 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   );
   const [isVerifiedProductsLoading, setIsVerifiedProductsLoading] = useState(false);
   const [catalogLoadError, setCatalogLoadError] = useState('');
+
+  useEffect(() => {
+    if (!feedCategories.length) return;
+
+    let cancelled = false;
+    const categories = feedCategories.slice(0, 6);
+    const timer = setTimeout(async () => {
+      for (const { slug } of categories) {
+        if (cancelled || document.visibilityState === 'hidden') break;
+        const cached = getCachedStorehouseCategory(slug);
+        if (!cached || Date.now() - cached.fetchedAt >= STOREHOUSE_CATEGORY_CACHE_TTL) {
+          await requestStorehouseCategory(slug).catch(() => undefined);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [feedCategories]);
 
   const selectedFeedCategory = activeCategoryDefinition;
   const selectedFeedCategorySlug = selectedFeedCategory?.slug || '';
@@ -730,21 +751,13 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     mixedBulkRequest.current = controller;
     setIsAddingMixedProducts(true);
     try {
-      const filters = { ...mixedFilters, excludedIds: addedStorehouseIds };
-      const addedIds = new Set(addedStorehouseIds);
-      const eligible: DemoProduct[] = [];
-      let snapshotId: string | undefined;
-      for (let batch = 1; eligible.length < remainingSlots; batch += 1) {
-        const result = await requestStorehouseMix(filters, batch, STOREHOUSE_MIX_BATCH_SIZE, snapshotId, controller.signal);
-        if (result.page !== batch) throw new Error('The Storehouse changed while loading products. Please try again.');
-        snapshotId = result.snapshotId;
-        for (const product of result.products) {
-          if (addedIds.has(product.id)) continue;
-          addedIds.add(product.id);
-          eligible.push(product);
-        }
-        if (batch * STOREHOUSE_MIX_BATCH_SIZE >= result.totalCount) break;
-      }
+      const filters = mixedFilters;
+      const snapshotId = mixedSnapshot.current?.filters === filters ? mixedSnapshot.current.id : undefined;
+      const result = await requestStorehouseMix(filters, 1, pageSize, snapshotId, controller.signal, {
+        bulkLimit: remainingSlots,
+        bulkExcludedIds: addedStorehouseIds,
+      });
+      const eligible = result.products;
       if (controller.signal.aborted) return;
       if (!eligible.length) {
         notify('There are no new Storehouse products to add.');
@@ -774,8 +787,9 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       onAddAllToShop(Array.from(CLEARED_SELLER_STOREHOUSE_DEMO_CATEGORY_SLUGS));
       return;
     }
+    const addedIds = new Set(addedStorehouseIds);
     const eligible = filteredVerifiedProducts
-      .filter((product) => !addedStorehouseIds.includes(product.id))
+      .filter((product) => !addedIds.has(product.id))
       .slice(0, remainingSlots);
     if (!eligible.length) {
       notify(remainingSlots <= 0

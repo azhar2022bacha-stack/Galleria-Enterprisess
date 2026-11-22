@@ -7,6 +7,8 @@ import type {
 
 export type { SellerNotification, SellerNotificationCategory, SellerNotificationPart, SellerNotificationTone };
 
+export const SELLER_NOTIFICATIONS_CHANGED = 'galleria_seller_notifications_changed';
+
 export interface SellerNotificationDraft {
   sellerEmail?: string;
   orderNumber?: string;
@@ -31,6 +33,7 @@ export async function sendSellerNotification(draft: SellerNotificationDraft): Pr
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Unable to send seller notification.');
     }
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(SELLER_NOTIFICATIONS_CHANGED));
     return true;
   } catch (error) {
     console.warn('Seller notification could not be saved:', error);

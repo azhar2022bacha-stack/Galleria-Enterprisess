@@ -1034,8 +1034,10 @@ export function getSellerProducts<T = any>(email?: string): T[] {
   return [];
 }
 
-export function saveSellerProducts(products: any[], email?: string) {
-  if (!isBrowser()) return;
+const sellerProductWrites = new Map<string, Promise<boolean>>();
+
+export function saveSellerProducts(products: any[], email?: string): Promise<boolean> {
+  if (!isBrowser()) return Promise.resolve(false);
   const targetEmail = resolveSellerEmail(email);
   const serialized = JSON.stringify(products);
   if (targetEmail) {
@@ -1045,16 +1047,25 @@ export function saveSellerProducts(products: any[], email?: string) {
   window.localStorage.setItem(PRODUCTS_KEY, serialized);
   window.dispatchEvent(new Event(SELLER_PRODUCTS_CHANGED_EVENT));
 
-  // Dual-sync to server storage so Admin Panel -> Extension -> Owners -> Products sees live updates
-  try {
-    fetch('/api/seller/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: targetEmail || 'default', products }),
-    }).catch((e) => console.warn('Failed to sync products to server:', e));
-  } catch (err) {
-    // Non-blocking
-  }
+  const account = targetEmail || 'default';
+  const previousWrite = sellerProductWrites.get(account) || Promise.resolve();
+  const write = previousWrite.then(async () => {
+    try {
+      const response = await fetch('/api/seller/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"email":' + JSON.stringify(account) + ',"products":' + serialized + '}',
+      });
+      return response.ok;
+    } catch (error) {
+      console.warn('Failed to sync products to server:', error);
+      return false;
+    }
+  }).finally(() => {
+    if (sellerProductWrites.get(account) === write) sellerProductWrites.delete(account);
+  });
+  sellerProductWrites.set(account, write);
+  return write;
 }
 
 /** Subscribe only to seller catalog changes, without reacting to wallet/order updates. */

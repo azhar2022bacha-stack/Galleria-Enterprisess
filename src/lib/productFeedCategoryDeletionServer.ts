@@ -3,18 +3,19 @@ import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { RetailListing } from '@/lib/retailListings';
 import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
-import { findSharedCatalogImageReferences } from '@/lib/storehouseCatalogServer';
+import { findSharedCatalogImageReferences, SELLER_STOREHOUSE_BATCHES, ADMIN_PRODUCT_FEED_BATCH } from '@/lib/storehouseCatalogServer';
 import { lockConsignCatalogForWrite } from '@/lib/consignCatalogServer';
 import {
-  readRetailListings,
   readRetailListingsFallbackFile,
-  writeRetailListingsAtomically,
+  readRetailListingsForUpdate,
+  writeRetailListingsInTransaction,
   writeRetailListingsFallbackFile,
 } from '@/lib/retailListingsServer';
 import {
-  readProductUpdateHistory,
   readProductUpdateHistoryFallbackFile,
-  writeProductUpdateHistory,
+  readProductUpdateHistoryForUpdate,
+  writeProductUpdateHistoryInTransaction,
+  type ProductUpdateBatch,
   writeProductUpdateHistoryFallbackFile,
 } from '@/lib/productUpdateHistoryServer';
 import {
@@ -34,7 +35,8 @@ import {
   removeStorehouseFallbackProducts,
   writeStorehouseFallbackProducts,
 } from '@/lib/storehouseCatalogFallbackServer';
-import { catalogCategorySourceSlugs } from '@/data/catalogCategoryReplacements';
+import { normalizeProductFeedKey } from '@/lib/productFeed';
+import { catalogCategorySlug, catalogCategorySourceSlugs } from '@/data/catalogCategoryReplacements';
 
 type CategoryKind = 'category' | 'subcategory';
 type CategoryShape = { name: string; slug: string; subcategories: { name: string; slug: string }[] };
@@ -64,16 +66,9 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function isDatabaseUnavailableError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = String((error as Error & { code?: string }).code || '');
-  return /shared product catalog database is unavailable|unable to (?:read|initialize|load) (?:the )?(?:shared product catalog|product import history)/i.test(error.message)
-    || /^(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|57P01|57P03)$/.test(code)
-    || code.startsWith('08');
-}
-
 function categoryMatchesScope(category: string | undefined, categorySlug: string | undefined, scope: ProductScope): boolean {
-  return categorySlug === scope.categorySlug || (!categorySlug && normalizeName(category || '') === normalizeName(scope.categoryName));
+  return catalogCategorySlug(categorySlug || slugify(category || '')) === scope.categorySlug
+    || (!categorySlug && normalizeName(category || '') === normalizeName(scope.categoryName));
 }
 
 function listingMatchesAnyScope(listing: RetailListing, scopes: ProductScope[]): boolean {
@@ -86,13 +81,17 @@ function listingMatchesAnyScope(listing: RetailListing, scopes: ProductScope[]):
   }));
 }
 
+function isManagedProductImage(value: unknown): value is string {
+  return typeof value === 'string' && /^\/uploads\/(?:admin-product-updates|admin-product-feed|retail-listings)\/[A-Za-z0-9._-]+$/.test(value);
+}
+
 function listingImagePaths(listing: RetailListing): string[] {
   const paths = [listing.image, ...(listing.additionalImages || []), listing.pendingChanges?.image, ...(listing.pendingChanges?.additionalImages || [])];
-  return paths.filter((value): value is string => typeof value === 'string' && /^\/uploads\/(?:admin-product-updates|admin-product-feed|retail-listings)\/[A-Za-z0-9._-]+$/.test(value));
+  return paths.filter(isManagedProductImage);
 }
 
 function removeListingsFromHistory(
-  batches: Awaited<ReturnType<typeof readProductUpdateHistory>>,
+  batches: ProductUpdateBatch[],
   removedIds: Set<string>,
   scopes: ProductScope[],
 ) {
@@ -118,7 +117,9 @@ function removeListingsFromHistory(
 }
 
 function findCategory(categories: CategoryShape[], slug: string, name: string): CategoryShape | undefined {
-  return categories.find((category) => category.slug === slug || (name && normalizeName(category.name) === normalizeName(name)));
+  const canonicalSlug = catalogCategorySlug(slug);
+  return categories.find((category) => category.slug === canonicalSlug)
+    ?? categories.find((category) => name && normalizeName(category.name) === normalizeName(name));
 }
 
 function findSubcategory(category: CategoryShape, slug: string, name: string) {
@@ -131,7 +132,7 @@ function sellerProductMatchesScope(
   scopes: ProductScope[],
 ): boolean {
   return scopes.some((scope) => {
-    const sameCategory = product.categorySlug === scope.categorySlug || normalizeName(product.category || '') === normalizeName(scope.categoryName);
+    const sameCategory = categoryMatchesScope(product.category, product.categorySlug, scope);
     if (!sameCategory) return false;
     if (kind === 'category') return true;
     return product.subcategorySlug === scope.subcategorySlug
@@ -203,114 +204,107 @@ function removeStorehouseOverrides(
   return next;
 }
 
-async function deleteStorehouseRows(
+type RemovedStorehouseRow = {
+  product_id: string;
+  import_batch_id: string | null;
+  sku_key: string | null;
+  product_name_key: string | null;
+  retail_listing_id: string | null;
+  image: string | null;
+  linked_to_consign: boolean;
+};
+
+function officialFeedKey(listing: RetailListing) {
+  if (listing.sellerSlug !== 'official-store-catalog' || !listing.sku) return null;
+  return { sku: listing.sku.trim().toUpperCase(), title: normalizeProductFeedKey(listing.title) };
+}
+
+function catalogSlugSql(column: string): string {
+  return `trim(both '-' from regexp_replace(regexp_replace(lower(normalize(${column}, NFKD)), '[\u0300-\u036f]', '', 'g'), '[^a-z0-9]+', '-', 'g'))`;
+}
+
+async function deleteDatabaseProducts(
+  client: PoolClient,
   kind: CategoryKind,
   scopes: ProductScope[],
-  persistCatalogs: (result: { productIds: string[]; deletedProducts: number; storehouseDatabaseSkipped?: boolean }) => Promise<void>,
-  deleteAllProducts = false,
-): Promise<{ productIds: string[]; deletedProducts: number; storehouseDatabaseSkipped?: boolean }> {
-  if (!process.env.DATABASE_URL?.trim()) {
-    const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
-    await persistCatalogs(deleted);
-    return deleted;
-  }
-  if (!(await initDb())) {
-    if (deleteAllProducts && process.env.DATABASE_URL?.trim()) {
-      throw new Error('All categories were not deleted because the catalog database is unavailable. Try again when the database is online.');
-    }
-    const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
-    await persistCatalogs(deleted);
-    return deleted;
-  }
-  const pool = getPool();
-  let client: PoolClient;
-  try {
-    client = await pool.connect();
-  } catch (error) {
-    if (!isDatabaseUnavailableError(error)) throw error;
-    if (deleteAllProducts) {
-      throw new Error('All categories were not deleted because the catalog database is unavailable. Try again when the database is online.');
-    }
-    const deleted = { productIds: [], deletedProducts: 0, storehouseDatabaseSkipped: true };
-    await persistCatalogs(deleted);
-    return deleted;
-  }
-  const categorySlugs = unique(scopes.map((scope) => scope.categorySlug));
+  mainListingsInScope: RetailListing[],
+  deleteAllProducts: boolean,
+) {
+  const categorySlugs = unique(scopes.flatMap((scope) => catalogCategorySourceSlugs(scope.categorySlug)));
   const categoryNames = unique(scopes.map((scope) => scope.categoryName.toLowerCase()));
   const subcategorySlugs = unique(scopes.map((scope) => scope.subcategorySlug || slugify(scope.subcategoryName || '')).filter(Boolean));
   const subcategoryNames = unique(scopes.map((scope) => scope.subcategoryName?.toLowerCase() || '').filter(Boolean));
-  const batches = ['STOREHOUSE-CATALOG-VERIFIED-V1', 'ADMIN-PRODUCT-FEED-V1'];
+  const keys = mainListingsInScope.map(officialFeedKey).filter((key) => key !== null);
+  // Older All Three imports share the Storehouse ID with Consign but do not store the Main Store ID.
+  const stock = await client.query<RemovedStorehouseRow>(
+    `WITH matching AS (
+        SELECT stock.product_id, stock.product_data->>'retailListingId' AS retail_listing_id,
+               linked.product_id IS NOT NULL AS linked_to_consign
+        FROM storehouse_catalog_products stock
+        LEFT JOIN consign_catalog_products linked ON linked.product_id = stock.product_id
+        WHERE stock.source_batch = ANY($1::text[])
+          AND ($2::boolean OR (
+            (stock.category_slug = ANY($3::text[]) OR lower(stock.category_name) = ANY($4::text[]))
+            AND ($5 = 'category' OR stock.product_data->>'subcategorySlug' = ANY($6::text[])
+              OR lower(stock.subcategory_name) = ANY($7::text[])
+              OR ${catalogSlugSql('stock.subcategory_name')} = ANY($6::text[]))
+          ) OR (stock.source_batch = $8 AND (
+            stock.product_data->>'retailListingId' = ANY($9::text[])
+            OR (linked.product_id IS NOT NULL AND (
+              ((${catalogSlugSql('linked.category_name')} = ANY($3::text[]) OR lower(linked.category_name) = ANY($4::text[]))
+                AND ($5 = 'category' OR ${catalogSlugSql('linked.subcategory_name')} = ANY($6::text[])
+                  OR lower(linked.subcategory_name) = ANY($7::text[])))
+              OR (stock.product_data->>'retailListingId' IS NULL AND EXISTS (
+                SELECT FROM jsonb_to_recordset($10::jsonb) AS original(sku text, title text)
+                WHERE original.sku = stock.sku_key AND original.title = stock.product_name_key
+              ))
+            ))
+          )))
+      )
+      DELETE FROM storehouse_catalog_products stock USING matching
+      WHERE stock.product_id = matching.product_id
+      RETURNING stock.product_id, stock.import_batch_id, stock.sku_key, stock.product_name_key,
+                stock.product_data->>'mainImage' AS image, matching.retail_listing_id, matching.linked_to_consign`,
+    [SELLER_STOREHOUSE_BATCHES, deleteAllProducts, categorySlugs, categoryNames, kind, subcategorySlugs,
+      subcategoryNames, ADMIN_PRODUCT_FEED_BATCH, mainListingsInScope.map(({ id }) => id), JSON.stringify(keys)],
+  );
 
-  try {
-    await client.query('BEGIN');
-    await lockConsignCatalogForWrite(client);
-    const result = await client.query<{ product_id: string; import_batch_id: string | null }>(
-      deleteAllProducts
-        ? `DELETE FROM storehouse_catalog_products
-           WHERE source_batch = ANY($1::text[])
-           RETURNING product_id, import_batch_id`
-        : kind === 'category'
-        ? `DELETE FROM storehouse_catalog_products
-           WHERE source_batch = ANY($1::text[])
-             AND (category_slug = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
-           RETURNING product_id, import_batch_id`
-        : `DELETE FROM storehouse_catalog_products
-           WHERE source_batch = ANY($1::text[])
-             AND (category_slug = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
-             AND ((product_data->>'subcategorySlug') = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))
-           RETURNING product_id, import_batch_id`,
-      deleteAllProducts
-        ? [batches]
-        : kind === 'category'
-        ? [batches, categorySlugs, categoryNames]
-        : [batches, categorySlugs, categoryNames, subcategorySlugs, subcategoryNames],
+  // Matching linked Consign rows are removed by the Storehouse foreign key. Clean up any
+  // remaining Consign assignments independently if their source stock is outside the feed.
+  await client.query(
+    `DELETE FROM consign_catalog_products
+       WHERE $1::boolean OR ((${catalogSlugSql('category_name')} = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
+         AND ($4 = 'category' OR ${catalogSlugSql('subcategory_name')} = ANY($5::text[]) OR lower(subcategory_name) = ANY($6::text[])))`,
+    [deleteAllProducts, categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
+  );
+  const consign = await client.query<{ image: string | null }>(
+    `DELETE FROM consign_feed_products
+       WHERE $1::boolean OR ((category_slug = ANY($2::text[]) OR lower(category_name) = ANY($3::text[]))
+         AND ($4 = 'category' OR subcategory_slug = ANY($5::text[]) OR lower(subcategory_name) = ANY($6::text[])))
+       RETURNING product_data->>'mainImage' AS image`,
+    [deleteAllProducts, categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
+  );
+  const batchIds = unique(stock.rows.flatMap(({ import_batch_id }) => import_batch_id ? [import_batch_id] : []));
+  if (batchIds.length) {
+    await client.query(
+      `WITH category_counts AS (
+          SELECT import_batch_id, category_slug, count(*)::integer AS count
+          FROM storehouse_catalog_products
+          WHERE import_batch_id = ANY($1::text[])
+          GROUP BY import_batch_id, category_slug
+        ), totals AS (
+          SELECT import_batch_id, sum(count)::integer AS total, jsonb_object_agg(category_slug, count) AS counts
+          FROM category_counts GROUP BY import_batch_id
+        )
+        UPDATE storehouse_catalog_import_batches batch
+        SET expected_products = COALESCE(totals.total, 0), uploaded_products = COALESCE(totals.total, 0),
+            published_products = COALESCE(totals.total, 0), category_counts = COALESCE(totals.counts, '{}'::jsonb),
+            updated_at = CURRENT_TIMESTAMP
+        FROM unnest($1::text[]) AS affected(id) LEFT JOIN totals ON totals.import_batch_id = affected.id
+        WHERE batch.id = affected.id`, [batchIds],
     );
-    if (deleteAllProducts) {
-      await client.query('DELETE FROM consign_catalog_products');
-    } else {
-      await client.query(
-        `DELETE FROM consign_catalog_products
-         WHERE lower(category_name) = ANY($1::text[])
-           AND ($2 = 'category' OR lower(subcategory_name) = ANY($3::text[]))`,
-        [categoryNames, kind, subcategoryNames],
-      );
-    }
-    const consign = deleteAllProducts
-      ? await client.query('DELETE FROM consign_feed_products')
-      : await client.query(
-        `DELETE FROM consign_feed_products
-         WHERE (category_slug = ANY($1::text[]) OR lower(category_name) = ANY($2::text[]))
-           AND ($3 = 'category' OR subcategory_slug = ANY($4::text[]) OR lower(subcategory_name) = ANY($5::text[]))`,
-        [categorySlugs, categoryNames, kind, subcategorySlugs, subcategoryNames],
-      );
-    const productIds = result.rows.map((row) => row.product_id);
-    const batchIds = unique(result.rows.map((row) => row.import_batch_id).filter((value): value is string => Boolean(value)));
-    for (const batchId of batchIds) {
-      const counts = await client.query<{ category_slug: string; count: string }>(
-        `SELECT category_slug, COUNT(*)::text AS count
-         FROM storehouse_catalog_products WHERE import_batch_id = $1 GROUP BY category_slug`,
-        [batchId],
-      );
-      const categoryCounts = Object.fromEntries(counts.rows.map((row) => [row.category_slug, Number(row.count)]));
-      const total = Object.values(categoryCounts).reduce((sum, value) => sum + value, 0);
-      await client.query(
-        `UPDATE storehouse_catalog_import_batches
-         SET expected_products = $2, uploaded_products = $2, published_products = $2,
-             category_counts = $3::jsonb, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [batchId, total, JSON.stringify(categoryCounts)],
-      );
-    }
-    const deleted = { productIds, deletedProducts: (result.rowCount || 0) + (consign.rowCount || 0) };
-    await persistCatalogs(deleted);
-    await client.query('COMMIT');
-    return deleted;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
   }
+  return { stock: stock.rows, consign: consign.rows };
 }
 
 export function deleteProductFeedCategoryEverywhere(input: DeleteInput) {
@@ -362,7 +356,7 @@ async function deleteCategory(input: DeleteInput) {
         ? findSubcategory(category, requestedSubcategorySlug, requestedSubcategoryName)
         : undefined;
       return {
-        categorySlug: category.slug,
+        categorySlug: catalogCategorySlug(category.slug),
         categoryName: category.name,
         ...(kind === 'subcategory' ? {
           subcategorySlug: subcategory?.slug || requestedSubcategorySlug || slugify(requestedSubcategoryName),
@@ -373,111 +367,148 @@ async function deleteCategory(input: DeleteInput) {
   }
   if (!scopes.length && !deleteAllProducts) throw new Error('Category was not found. Refresh the page and try again.');
 
-  let databaseFallback = false;
-  let oldListings: RetailListing[];
-  let oldHistory: Awaited<ReturnType<typeof readProductUpdateHistory>>;
-  try {
-    oldListings = await readRetailListings();
-  } catch (error) {
-    if (!isDatabaseUnavailableError(error)) throw error;
-    databaseFallback = true;
-    oldListings = readRetailListingsFallbackFile();
+  const databaseEnabled = Boolean(process.env.DATABASE_URL?.trim());
+  if (databaseEnabled && !(await initDb())) {
+    throw new Error('The catalog database is unavailable. No categories were deleted. Try again when it is online.');
   }
-  try {
-    oldHistory = await readProductUpdateHistory();
-  } catch (error) {
-    if (!isDatabaseUnavailableError(error)) throw error;
-    databaseFallback = true;
-    oldHistory = readProductUpdateHistoryFallbackFile();
-  }
-  const oldMainOverrides = readStoreCategoryOverrides();
-  const oldStorehouseOverrides = readStorehouseProductFeedCategoryOverrides();
-  const oldSellerProducts = readAllSellerProductsMap();
-  const oldStorehouseFallbackProducts = readStorehouseFallbackProducts();
-  const nextStorehouseFallback = deleteAllProducts
-    ? { products: [], removedCount: oldStorehouseFallbackProducts.length }
-    : removeStorehouseFallbackProducts(kind, scopes);
-  const hasAssignedCategory = (item: { category?: string; categorySlug?: string }) => Boolean(item.categorySlug || item.category);
-  const removedListings = oldListings.filter((listing) => deleteAllProducts
-    ? hasAssignedCategory(listing)
-    : listingMatchesAnyScope(listing, scopes));
-  const removedIds = new Set(removedListings.map((listing) => listing.id));
-  for (const batch of oldHistory) {
-    for (const previousListing of batch.previousListings) {
-      if (listingMatchesAnyScope(previousListing, scopes)) removedIds.add(previousListing.id);
-    }
-  }
-  const removedListingIds = new Set(removedListings.map((listing) => listing.id));
-  const nextListings = oldListings.filter((listing) => !removedListingIds.has(listing.id));
-  const nextHistory = deleteAllProducts ? [] : removeListingsFromHistory(oldHistory, removedIds, scopes);
-  const nextMainOverrides = removeCategoryOverrides(oldMainOverrides, kind, scopes);
-  const nextStorehouseOverrides = removeStorehouseOverrides(oldStorehouseOverrides, kind, scopes);
-
-  let retainedSellerImages = new Set<string>();
+  const client = databaseEnabled ? await getPool().connect() : undefined;
+  let restoreFiles: (() => void) | undefined;
+  let deletedMainStoreProducts = 0;
+  let deletedStorehouseProducts = 0;
+  let deletedConsignProducts = 0;
   const removedSellerProductIds = new Set<string>();
-  let removedStorehouseFallbackProducts = 0;
-  const database = await deleteStorehouseRows(kind, scopes, async (deleted) => {
-    const useFileFallback = databaseFallback || deleted.storehouseDatabaseSkipped === true;
-    const removedFeedProductIds = new Set([
-      ...deleted.productIds,
-      ...deleted.productIds.map((id) => `p-${id}`),
-    ]);
+  const deletedImagePaths = new Set<string>();
+  const stillReferencedImages = new Set<string>();
+
+  try {
+    if (client) {
+      await client.query('BEGIN');
+      await lockConsignCatalogForWrite(client);
+    }
+    const oldListings = client ? await readRetailListingsForUpdate(client) : readRetailListingsFallbackFile();
+    const oldHistory = client ? await readProductUpdateHistoryForUpdate(client) : readProductUpdateHistoryFallbackFile();
+    const oldMainOverrides = readStoreCategoryOverrides();
+    const oldStorehouseOverrides = readStorehouseProductFeedCategoryOverrides();
+    const oldStorehouseFallback = readStorehouseFallbackProducts();
+    const fallbackScopes = scopes.flatMap((scope) =>
+      catalogCategorySourceSlugs(scope.categorySlug).map((slug) => ({ ...scope, categorySlug: slug })),
+    );
+    const fallback = deleteAllProducts
+      ? { products: [], removedCount: oldStorehouseFallback.length }
+      : removeStorehouseFallbackProducts(kind, fallbackScopes);
+
+    const hasAssignedCategory = (item: { category?: string; categorySlug?: string }) => Boolean(item.categorySlug || item.category);
+    const scopedListings = oldListings.filter((listing) => deleteAllProducts
+      ? hasAssignedCategory(listing)
+      : listingMatchesAnyScope(listing, scopes));
+    const database = client
+      ? await deleteDatabaseProducts(client, kind, scopes, scopedListings, deleteAllProducts)
+      : { stock: [], consign: [] };
+
+    const removedListingIds = new Set(scopedListings.map(({ id }) => id));
+    const legacyLinkedKeys = new Set<string>();
+    const key = (sku: string, title: string) => JSON.stringify([sku, title]);
+    for (const row of database.stock) {
+      if (row.retail_listing_id) removedListingIds.add(row.retail_listing_id);
+      else if (row.linked_to_consign && row.sku_key && row.product_name_key) {
+        legacyLinkedKeys.add(key(row.sku_key, row.product_name_key));
+      }
+    }
+    if (!deleteAllProducts && legacyLinkedKeys.size) {
+      for (const listing of oldListings) {
+        const original = officialFeedKey(listing);
+        if (original && legacyLinkedKeys.has(key(original.sku, original.title))) removedListingIds.add(listing.id);
+      }
+    }
+
+    const nextListings = oldListings.filter((listing) => {
+      if (!removedListingIds.has(listing.id)) return true;
+      listingImagePaths(listing).forEach((image) => deletedImagePaths.add(image));
+      return false;
+    });
+    deletedMainStoreProducts = oldListings.length - nextListings.length;
+    const removedHistoryIds = new Set(removedListingIds);
+    for (const batch of oldHistory) {
+      for (const listing of batch.previousListings) {
+        if (deleteAllProducts || removedListingIds.has(listing.id) || listingMatchesAnyScope(listing, scopes)) {
+          removedHistoryIds.add(listing.id);
+          listingImagePaths(listing).forEach((image) => deletedImagePaths.add(image));
+        }
+      }
+    }
+    const nextHistory = deleteAllProducts ? [] : removeListingsFromHistory(oldHistory, removedHistoryIds, scopes);
+    const retainedFallbackIds = new Set(fallback.products.map(({ product_id }) => product_id));
+    const removedFallbackRows = oldStorehouseFallback.filter(({ product_id }) => !retainedFallbackIds.has(product_id));
+    const removedStockIds = [...database.stock, ...removedFallbackRows].map(({ product_id }) => product_id);
+    const removedFeedProductIds = new Set([...removedStockIds, ...removedStockIds.map((id) => `p-${id}`)]);
+    for (const { image } of [...database.stock, ...database.consign]) {
+      if (image && isManagedProductImage(image)) deletedImagePaths.add(image);
+    }
+    for (const { product_data } of removedFallbackRows) {
+      if (isManagedProductImage(product_data?.mainImage)) deletedImagePaths.add(product_data.mainImage);
+    }
+    deletedStorehouseProducts = database.stock.length + fallback.removedCount;
+    deletedConsignProducts = database.consign.length;
+
+    if (client) {
+      await writeRetailListingsInTransaction(client, nextListings);
+      await writeProductUpdateHistoryInTransaction(client, nextHistory);
+    }
+
+    const oldSellerProducts = readAllSellerProductsMap();
     const nextSellerProducts = Object.fromEntries(Object.entries(oldSellerProducts).map(([email, products]) => [
       email,
       Array.isArray(products) ? products.filter((product) => {
         const removed = removedFeedProductIds.has(product?.id)
           || (deleteAllProducts && hasAssignedCategory(product || {}))
           || sellerProductMatchesScope(product || {}, kind, scopes);
-        if (removed && product?.id) removedSellerProductIds.add(product.id);
+        if (removed) {
+          if (product?.id) removedSellerProductIds.add(product.id);
+          if (isManagedProductImage(product?.image)) deletedImagePaths.add(product.image);
+        } else if (product?.image) {
+          stillReferencedImages.add(product.image);
+        }
         return !removed;
       }) : products,
     ]));
-    retainedSellerImages = new Set(Object.values(nextSellerProducts).flatMap((products) => (
-      Array.isArray(products) ? products.map((product) => product?.image).filter((image): image is string => typeof image === 'string') : []
-    )));
-    if (!useFileFallback) await writeRetailListingsAtomically(nextListings, oldListings);
-    try {
-      if (useFileFallback) {
-        writeRetailListingsFallbackFile(nextListings);
-        writeProductUpdateHistoryFallbackFile(nextHistory);
-      } else {
-        await writeProductUpdateHistory(nextHistory);
-      }
-      writeStoreCategoryOverrides(nextMainOverrides);
-      writeStorehouseProductFeedCategoryOverrides(nextStorehouseOverrides);
-      writeAllSellerProductsMap(nextSellerProducts);
-      writeStorehouseFallbackProducts(nextStorehouseFallback.products);
-      removedStorehouseFallbackProducts = nextStorehouseFallback.removedCount;
-    } catch (error) {
-      try {
-        if (useFileFallback) {
-          writeRetailListingsFallbackFile(oldListings);
-          writeProductUpdateHistoryFallbackFile(oldHistory);
-        } else {
-          await writeRetailListingsAtomically(oldListings, nextListings);
-          await writeProductUpdateHistory(oldHistory);
-        }
-        writeStoreCategoryOverrides(oldMainOverrides);
-        writeStorehouseProductFeedCategoryOverrides(oldStorehouseOverrides);
-        writeAllSellerProductsMap(oldSellerProducts);
-        writeStorehouseFallbackProducts(oldStorehouseFallbackProducts);
-      } catch { /* Return the original error; recovery is best effort. */ }
-      throw error;
+    for (const listing of [...nextListings, ...nextHistory.flatMap((batch) => batch.previousListings)]) {
+      listingImagePaths(listing).forEach((image) => stillReferencedImages.add(image));
     }
-  }, deleteAllProducts);
 
-  const deletedImagePaths = new Set(removedListings.flatMap(listingImagePaths));
-  for (const batch of oldHistory) {
-    for (const previous of batch.previousListings) {
-      if (removedIds.has(previous.id)) listingImagePaths(previous).forEach((image) => deletedImagePaths.add(image));
+    restoreFiles = () => {
+      const restorations = [
+        () => writeStoreCategoryOverrides(oldMainOverrides),
+        () => writeStorehouseProductFeedCategoryOverrides(oldStorehouseOverrides),
+        () => writeAllSellerProductsMap(oldSellerProducts),
+        () => writeStorehouseFallbackProducts(oldStorehouseFallback),
+      ];
+      if (!client) restorations.push(
+        () => writeRetailListingsFallbackFile(oldListings),
+        () => writeProductUpdateHistoryFallbackFile(oldHistory),
+      );
+      for (const restore of restorations) {
+        try { restore(); }
+        catch (error) { console.error('Could not restore category deletion data.', error); }
+      }
+    };
+    if (!client) {
+      writeRetailListingsFallbackFile(nextListings);
+      writeProductUpdateHistoryFallbackFile(nextHistory);
     }
+    writeStoreCategoryOverrides(removeCategoryOverrides(oldMainOverrides, kind, scopes));
+    writeStorehouseProductFeedCategoryOverrides(removeStorehouseOverrides(oldStorehouseOverrides, kind, scopes));
+    writeAllSellerProductsMap(nextSellerProducts);
+    writeStorehouseFallbackProducts(fallback.products);
+    if (client) await client.query('COMMIT');
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    restoreFiles?.();
+    throw error;
+  } finally {
+    client?.release();
   }
-  const stillReferencedImages = new Set([
-    ...nextListings.flatMap(listingImagePaths),
-    ...nextHistory.flatMap((batch) => batch.previousListings.flatMap(listingImagePaths)),
-    ...retainedSellerImages,
-    ...await findSharedCatalogImageReferences(deletedImagePaths),
-  ]);
+
+  for (const image of await findSharedCatalogImageReferences(deletedImagePaths)) stillReferencedImages.add(image);
   let removedImages = 0;
   for (const image of deletedImagePaths) {
     if (stillReferencedImages.has(image)) continue;
@@ -490,11 +521,12 @@ async function deleteCategory(input: DeleteInput) {
   return {
     categories: getStoreCategories(),
     storehouseCategories: readStorehouseProductFeedCategories(),
-    deletedProducts: removedListings.length + database.deletedProducts + removedStorehouseFallbackProducts + removedSellerProductIds.size,
+    deletedProducts: deletedMainStoreProducts + deletedStorehouseProducts + deletedConsignProducts + removedSellerProductIds.size,
     deletedSellerProducts: removedSellerProductIds.size,
-    deletedMainStoreProducts: removedListings.length,
-    deletedStorehouseProducts: database.deletedProducts + removedStorehouseFallbackProducts,
-    storehouseDatabaseSkipped: database.storehouseDatabaseSkipped === true,
+    deletedMainStoreProducts,
+    deletedStorehouseProducts,
+    deletedConsignProducts,
+    storehouseDatabaseSkipped: !databaseEnabled,
     removedImages,
   };
 }

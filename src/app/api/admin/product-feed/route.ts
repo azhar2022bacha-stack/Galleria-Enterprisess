@@ -319,11 +319,12 @@ function makeStorehouseProduct(product: PreparedFeedProduct) {
   };
 }
 
-function prepareStorehouseBatch(products: PreparedFeedProduct[]) {
+function prepareStorehouseBatch(products: PreparedFeedProduct[], mainStoreListings?: RetailListing[]) {
   const batchId = `feed-batch-${randomUUID()}`;
   const categoryCounts: Record<string, number> = Object.create(null);
-  const rows = products.map((item) => {
+  const rows = products.map((item, index) => {
     const product = makeStorehouseProduct(item);
+    const retailListingId = mainStoreListings?.[index]?.id;
     const { category, subcategory } = item.storehouse ?? item;
     categoryCounts[category.slug] = (categoryCounts[category.slug] || 0) + 1;
     return {
@@ -335,7 +336,7 @@ function prepareStorehouseBatch(products: PreparedFeedProduct[]) {
       currency: 'USD',
       price: item.price,
       source_batch: STOREHOUSE_FEED_BATCH,
-      product_data: product,
+      product_data: retailListingId ? { ...product, retailListingId } : product,
       sku_key: item.sku.toUpperCase(),
       product_name_key: normalizeKey(item.title),
       image_sha256: item.imageHash || null,
@@ -514,7 +515,7 @@ async function publishRetailProducts(products: PreparedFeedProduct[], adminEmail
     if (allThree) await checkConsignImport(client, products);
     const listings = await readRetailListingsForUpdate(client);
     checkDuplicates(listings);
-    const batch = allThree ? prepareStorehouseBatch(products) : null;
+    const batch = allThree ? prepareStorehouseBatch(products, additions) : null;
     if (batch) {
       await writeStorehouseBatch(client, batch, adminEmail, fileName);
       const consignRows = batch.rows.map((row, index) => ({
@@ -616,7 +617,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    return await (destination === 'all-three' && action === 'commit'
+    return await (action === 'commit'
       ? withProductFeedCategoryWrite(runUpload)
       : runUpload());
   } catch (error) {

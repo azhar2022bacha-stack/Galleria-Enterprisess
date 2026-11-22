@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import type { PoolClient } from 'pg';
 import type { RetailListing } from '@/lib/retailListings';
 import { dbQuery, initDb } from '@/lib/db';
 
@@ -58,6 +59,27 @@ function parseDatabaseHistory(value: unknown): ProductUpdateBatch[] {
     } catch { return []; }
   }
   return [];
+}
+
+export async function readProductUpdateHistoryForUpdate(client: PoolClient): Promise<ProductUpdateBatch[]> {
+  const read = () => client.query<{ batches: unknown }>('SELECT batches FROM product_update_history_state WHERE id = 1 FOR UPDATE');
+  let result = await read();
+  if (!result.rows[0]) {
+    await client.query(
+      'INSERT INTO product_update_history_state (id, batches) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING',
+      [JSON.stringify(readFileHistory())],
+    );
+    result = await read();
+  }
+  if (!result.rows[0]) throw new Error('Unable to initialize product import history.');
+  return parseDatabaseHistory(result.rows[0].batches);
+}
+
+export async function writeProductUpdateHistoryInTransaction(client: PoolClient, batches: ProductUpdateBatch[]): Promise<void> {
+  await client.query(
+    'UPDATE product_update_history_state SET batches = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+    [JSON.stringify(batches)],
+  );
 }
 
 export async function readProductUpdateHistory(): Promise<ProductUpdateBatch[]> {

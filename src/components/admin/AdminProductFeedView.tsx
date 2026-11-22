@@ -485,7 +485,7 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
   const deleteManagedCategory = async (kind: 'category' | 'subcategory', category: CategoryOption, subcategory?: CategoryOption['subcategories'][number]) => {
     const label = kind === 'category' ? category.name : `${category.name} › ${subcategory?.name || ''}`;
     const key = `${kind}:${category.slug}:${subcategory?.slug || ''}`;
-    if (!window.confirm(`Remove “${label}” from all catalogs? Products in it will be hidden.`)) return;
+    if (!window.confirm(`Permanently delete “${label}” and its products from all catalogs and seller accounts? This cannot be undone.`)) return;
     setDeletingCategoryKey(key);
     setCategoryError('');
     setCategoryNotice('');
@@ -519,7 +519,8 @@ export function AdminProductFeedView({ notify }: { notify?: (message: string) =>
       if (kind === 'subcategory' && categorySlug === category.slug && subcategorySlug === subcategory?.slug) setSubcategorySlug('');
       if (kind === 'subcategory' && csvCategorySlug === category.slug && csvSubcategorySlug === subcategory?.slug) setCsvSubcategorySlug('');
       setPreview(null);
-      const successMessage = `${label} removed from all catalogs.`;
+      const deletedCount = Number(payload.deletedProducts) || 0;
+      const successMessage = `${label} deleted from all catalogs. ${deletedCount.toLocaleString()} product records removed.`;
       setCategoryNotice(successMessage);
       notify?.(successMessage);
       void refreshDestination();

@@ -8,7 +8,7 @@ import {
 import { deleteAllProductFeedCategoriesEverywhere, deleteProductFeedCategoryEverywhere } from '@/lib/productFeedCategoryDeletionServer';
 import { readAdminProductCategoryCounts } from '@/lib/adminProductCategoryCountsServer';
 import { withProductFeedCategoryWrite } from '@/lib/productFeedCategoryStorage';
-import { readProductFeedCategoryLists, updateProductFeedCategoriesEverywhere } from '@/lib/productFeedSharedCategoriesServer';
+import { addProductFeedCategoriesEverywhere, readProductFeedCategoryLists } from '@/lib/productFeedSharedCategoriesServer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
   try {
     if (body.scope === 'all-catalogs') {
-      return NextResponse.json({ success: true, ...await updateProductFeedCategoriesEverywhere('add', body) }, { status: 201 });
+      return NextResponse.json({ success: true, ...await addProductFeedCategoriesEverywhere(body) }, { status: 201 });
     }
     const kind = body.kind;
     const categories = await withProductFeedCategoryWrite(() => addStorehouseProductFeedCategory({
@@ -65,7 +65,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
 
-  let body: { kind?: string; categorySlug?: string; categoryName?: string; subcategorySlug?: string; subcategoryName?: string; scope?: string };
+  let body: { kind?: string; categorySlug?: string; categoryName?: string; subcategorySlug?: string; subcategoryName?: string };
   try { body = await request.json(); }
   catch { return NextResponse.json({ success: false, error: 'Invalid category deletion request.' }, { status: 400 }); }
 
@@ -74,9 +74,6 @@ export async function DELETE(request: Request) {
       const result = await deleteAllProductFeedCategoriesEverywhere();
       return NextResponse.json({ success: true, ...result });
     }
-    if (body.scope === 'all-catalogs') {
-      return NextResponse.json({ success: true, ...await updateProductFeedCategoriesEverywhere('delete', body) });
-    }
     const result = await deleteProductFeedCategoryEverywhere({
       kind: body.kind,
       categorySlug: body.categorySlug,
@@ -84,7 +81,7 @@ export async function DELETE(request: Request) {
       subcategorySlug: body.subcategorySlug,
       subcategoryName: body.subcategoryName,
     });
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({ success: true, ...result, mainStoreCategories: result.categories });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not delete this category.';
     const status = /not found/i.test(message) ? 404 : /choose|select|provide/i.test(message) ? 400 : 500;

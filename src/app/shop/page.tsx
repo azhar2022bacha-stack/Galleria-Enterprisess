@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import ShopPageClient from './ShopPageClient';
 import { getStorefrontCatalogPage } from '@/lib/storefrontCatalogServer';
 
@@ -15,10 +16,10 @@ export default async function ShopPage({ searchParams }: { searchParams: Record<
     search: first('search').trim(),
     sort: first('sort') === 'newest' ? 'newest' : 'default',
   });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new AbortController();
   const page = await Promise.race([
     getStorefrontCatalogPage(filters).catch(() => undefined),
-    new Promise<undefined>((resolve) => { timeout = setTimeout(resolve, 2000); }),
-  ]).finally(() => clearTimeout(timeout));
+    delay(2000, undefined, { signal: deadline.signal }).catch(() => undefined),
+  ]).finally(() => deadline.abort());
   return <ShopPageClient initialPage={page && { key: filters.toString(), ...page }} />;
 }

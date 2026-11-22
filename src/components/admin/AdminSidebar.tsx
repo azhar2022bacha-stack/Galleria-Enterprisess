@@ -48,6 +48,7 @@ export type AdminTab =
   | 'todo'
   | 'confirm_order_by_seller'
   | 'store_exposure'
+  | 'manual_payment'
   | 'audit_log'
   | 'accounts'
   | 'consign'
@@ -201,6 +202,7 @@ export function AdminSidebar({
     { id: 'todo', label: 'To-do', iconType: 'todo' },
     { id: 'confirm_order_by_seller', label: 'Confirm Order by Seller', iconType: 'bag' },
     { id: 'store_exposure', label: 'Store Visitors & Exposure', iconType: 'bag' },
+    { id: 'manual_payment', label: 'Manual Payment', iconType: 'dollar' },
     { id: 'audit_log', label: 'Audit log', iconType: 'grid' },
     { id: 'accounts', label: 'Accounts', iconType: 'grid' },
     { id: 'consign', label: 'Consign', iconType: 'shield' },

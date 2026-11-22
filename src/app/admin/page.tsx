@@ -61,6 +61,7 @@ const AdminPriceListsView = dynamic(() => import('@/components/admin/AdminPriceL
 const AdminProductUpdateView = dynamic(() => import('@/components/admin/AdminProductUpdateView').then((m) => m.AdminProductUpdateView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminStoreCategoriesView = dynamic(() => import('@/components/admin/AdminStoreCategoriesView').then((m) => m.AdminStoreCategoriesView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminTodoView = dynamic(() => import('@/components/admin/AdminTodoView').then((m) => m.AdminTodoView), { ssr: false, loading: () => <ViewSkeleton /> });
+const AdminManualPaymentView = dynamic(() => import('@/components/admin/AdminManualPaymentView').then((m) => m.AdminManualPaymentView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminStoreExposureView = dynamic(() => import('@/components/admin/AdminStoreExposureView').then((m) => m.AdminStoreExposureView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminConfirmSellerOrdersView = dynamic(() => import('@/components/admin/AdminConfirmSellerOrdersView').then((m) => m.AdminConfirmSellerOrdersView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminAuditLogView = dynamic(() => import('@/components/admin/AdminAuditLogView').then((m) => m.AdminAuditLogView), { ssr: false, loading: () => <ViewSkeleton /> });
@@ -113,6 +114,7 @@ const ADMIN_PANEL_BY_TAB: Partial<Record<AdminTab, unknown>> = {
   todo: AdminTodoView,
   confirm_order_by_seller: AdminConfirmSellerOrdersView,
   store_exposure: AdminStoreExposureView,
+  manual_payment: AdminManualPaymentView,
   audit_log: AdminAuditLogView,
   accounts: AdminAccountsView,
   consign: AdminConsignView,
@@ -472,6 +474,8 @@ export default function AdminPage() {
         return 'Confirm Order by Seller';
       case 'store_exposure':
         return 'Store Visitors & Exposure';
+      case 'manual_payment':
+        return 'Manual Payment';
       case 'audit_log':
         return 'Audit log';
       case 'accounts':
@@ -670,6 +674,8 @@ export default function AdminPage() {
             />
           ) : activeTab === 'store_exposure' ? (
             <AdminStoreExposureView />
+          ) : activeTab === 'manual_payment' ? (
+            <AdminManualPaymentView />
           ) : activeTab === 'audit_log' ? (
             <AdminAuditLogView notify={notify} />
           ) : activeTab === 'accounts' ? (

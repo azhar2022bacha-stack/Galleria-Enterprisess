@@ -5,6 +5,7 @@ export interface ConsignMerchantSummary {
   email: string;
   balance: number;
   productsCount: number;
+  verified: boolean;
 }
 
 let cache: { adminEmail: string; merchants?: ConsignMerchantSummary[]; loadedAt: number; request?: Promise<ConsignMerchantSummary[]> } | undefined;
@@ -13,11 +14,11 @@ export function getCachedConsignMerchants(adminEmail: string) {
   return cache?.adminEmail === adminEmail ? cache.merchants : undefined;
 }
 
-export function fetchConsignMerchants(adminEmail: string) {
+export function fetchConsignMerchants(adminEmail: string, force = false) {
   if (!cache || cache.adminEmail !== adminEmail) cache = { adminEmail, loadedAt: 0 };
   const entry = cache;
   if (entry.request) return entry.request;
-  if (entry.merchants && Date.now() - entry.loadedAt < 15_000) return Promise.resolve(entry.merchants);
+  if (!force && entry.merchants && Date.now() - entry.loadedAt < 5_000) return Promise.resolve(entry.merchants);
 
   entry.request = fetch('/api/admin/owners?view=merchants', { cache: 'no-store' })
     .then(async (response) => {

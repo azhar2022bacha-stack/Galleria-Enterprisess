@@ -841,17 +841,19 @@ function formatSellerDate(dateVal?: string | Date): { joinedDate: string; create
 }
 
 export async function getConsignMerchantDirectory() {
-  const result = await dbQuery<{ id: number; full_name: string; email: string; shop_name: string }>(
-    'SELECT id, full_name, email, shop_name FROM sellers ORDER BY id DESC'
+  const result = await dbQuery<{ id: number; full_name: string; email: string; shop_name: string; status: string; id_status: string }>(
+    'SELECT id, full_name, email, shop_name, status, id_status FROM sellers ORDER BY id DESC'
   );
-  const sellers = new Map<string, { id: string; name: string; fullName: string; email: string }>();
-  const addSeller = (id: string, email: string, shopName: string, fullName: string) => {
+  const sellers = new Map<string, { id: string; name: string; fullName: string; email: string; verified: boolean }>();
+  const addSeller = (id: string, email: string, shopName: string, fullName: string, status?: string, idStatus?: string) => {
     const key = email?.trim().toLowerCase();
-    if (key && !sellers.has(key)) sellers.set(key, { id, email: key, name: shopName || fullName || key, fullName });
+    if (!key || sellers.has(key)) return;
+    const account = preserveStoredSellerVerification(status, idStatus);
+    sellers.set(key, { id, email: key, name: shopName || fullName || key, fullName, verified: account.status === 'approved' && account.idStatus === 'Verified' });
   };
-  for (const row of result?.rows ?? []) addSeller(`seller-db-${row.id}`, row.email, row.shop_name, row.full_name);
+  for (const row of result?.rows ?? []) addSeller(`seller-db-${row.id}`, row.email, row.shop_name, row.full_name, row.status, row.id_status);
   for (const seller of readDiskSellers()) {
-    addSeller(seller.id ? String(seller.id) : `seller-${seller.email}`, seller.email, seller.shopName, seller.fullName);
+    addSeller(seller.id ? String(seller.id) : `seller-${seller.email}`, seller.email, seller.shopName, seller.fullName, seller.status, seller.idStatus);
   }
   const products = readAllSellerProductsMap();
   return [...sellers.values()].map((seller) => ({ ...seller, productsCount: products[seller.email]?.length ?? 0 }));

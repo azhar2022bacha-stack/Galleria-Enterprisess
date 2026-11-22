@@ -191,6 +191,7 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
   const [merchantError, setMerchantError] = useState('');
   const [selectedMerchantId, setSelectedMerchantId] = useState('');
   const [merchantProducts, setMerchantProducts] = useState<{ email: string; products: any[] }>();
+  const [stockErrorEmail, setStockErrorEmail] = useState('');
   const [isMerchantDropdownOpen, setIsMerchantDropdownOpen] = useState(false);
   const menuId = useDismissMenusOnOutsideClick(isMerchantDropdownOpen, () => setIsMerchantDropdownOpen(false));
 
@@ -235,56 +236,61 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
   const [cancellingOrderIds, setCancellingOrderIds] = useState<Set<string>>(new Set());
   const [rejectedOrderKeys, setRejectedOrderKeys] = useState<Set<string>>(new Set());
 
-  // Read cached local products strictly scoped to a specific merchant email
-  const readLocalSellerProducts = (email?: string): any[] => {
-    if (typeof window === 'undefined' || !email) return [];
-    try {
-      const normalized = email.trim();
-      for (const candidate of [normalized, normalized.toLowerCase()]) {
-        const raw = localStorage.getItem(`galleria_seller_products_${candidate}`);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      }
-    } catch {}
-    return [];
-  };
-
-  const refreshMerchants = React.useCallback(() => {
+  const refreshMerchants = React.useCallback((force = false) => {
     setMerchantError('');
-    void fetchConsignMerchants(adminEmail).then(setMerchants).catch(() => setMerchantError('Could not load registered sellers.'));
+    void fetchConsignMerchants(adminEmail, force).then(setMerchants).catch(() => setMerchantError('Could not load registered sellers.'));
   }, [adminEmail]);
 
   useEffect(() => {
     refreshMerchants();
-    const interval = setInterval(refreshMerchants, 15_000);
-    window.addEventListener('focus', refreshMerchants);
+    const refresh = () => {
+      if (document.visibilityState !== 'hidden') refreshMerchants(true);
+    };
+    const interval = setInterval(refresh, 5_000);
+    window.addEventListener('focus', refresh);
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', refreshMerchants);
+      window.removeEventListener('focus', refresh);
     };
   }, [refreshMerchants]);
 
+  const verifiedMerchants = merchants?.filter((merchant) => merchant.verified);
   const selectedMerchant: ConsignMerchant =
-    merchants?.find((merchant) => merchant.id === selectedMerchantId) || merchants?.[0] || EMPTY_MERCHANT;
+    verifiedMerchants?.find((merchant) => merchant.id === selectedMerchantId) || verifiedMerchants?.[0] || EMPTY_MERCHANT;
 
   useEffect(() => {
     const email = selectedMerchant.email;
-    if (!email || activeConsignTab !== 'consign') return;
+    if (!email || activeConsignTab !== 'consign' || !isAlreadyStockView) return;
     const controller = new AbortController();
-    setMerchantProducts({ email, products: readLocalSellerProducts(email) });
-    fetch('/api/seller/products?email=' + encodeURIComponent(email), { signal: controller.signal, cache: 'no-store' })
-      .then(async (response) => {
-        if (!response.ok) return;
+    setMerchantProducts(undefined);
+    setStockErrorEmail('');
+    let loading = false;
+    const refresh = async () => {
+      if (loading || document.visibilityState === 'hidden') return;
+      loading = true;
+      try {
+        const response = await fetch('/api/seller/products?email=' + encodeURIComponent(email), { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
-        if (!controller.signal.aborted && data.success && Array.isArray(data.products) && (data.authoritative || data.products.length)) {
+        if (!response.ok || !data.success || !Array.isArray(data.products)) throw new Error('Could not load seller stock.');
+        if (!controller.signal.aborted) {
           setMerchantProducts({ email, products: data.products });
+          setStockErrorEmail('');
         }
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [activeConsignTab, selectedMerchant.email]);
+      } catch {
+        if (!controller.signal.aborted) setStockErrorEmail(email);
+      } finally {
+        loading = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 5_000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [activeConsignTab, isAlreadyStockView, selectedMerchant.email]);
 
   // Products added to this seller's shop under "My Product"
   const currentMerchantProducts = useMemo<ConsignProduct[]>(() => {
@@ -292,15 +298,15 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
     if (rawList.length > 0) {
       return rawList.map((p: any, idx: number) => ({
         id: String(p.id || `cp-${idx}`),
-        name: p.title || p.name || 'Storehouse Product',
+        name: p.title || p.name || String(p.id || ''),
         price:
           typeof (p.price ?? p.pricePerKg) === 'number'
             ? (p.price ?? p.pricePerKg)
-            : parseFloat(p.price || p.pricePerKg || '19.99') || 19.99,
+            : Number(p.price ?? p.pricePerKg) || 0,
         category: p.category || 'Storehouse',
-        sku: p.sku || `SKU-${String(idx + 1).padStart(4, '0')}`,
+        sku: p.sku || '',
         imageUrl: p.mainImage || p.image || p.imageUrl,
-        stock: p.stock ?? (p.stockBags ? `${p.stockBags} units` : '100 units'),
+        stock: p.stock ?? p.stockBags,
       }));
     }
     return [];
@@ -406,6 +412,8 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
 
   const changeProductSource = (alreadyStock: boolean) => {
     setIsAlreadyStockView(alreadyStock);
+    setSelectedProductIds(new Set());
+    setSelectedProductsCache({});
     setProductCategory('All categories');
     setProductPage(1);
   };
@@ -517,16 +525,16 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
   useEffect(() => {
     setSelectedProductIds(new Set());
     setSelectedProductsCache({});
-  }, [selectedMerchantId]);
+  }, [selectedMerchant.id]);
 
   const selectedProductsList = useMemo(() => {
     const byId = new Map<string, ConsignProduct>();
     activeProductsList.forEach((p) => byId.set(p.id, p));
     currentMerchantProducts.forEach((p) => byId.set(p.id, p));
     return Array.from(selectedProductIds)
-      .map((id) => byId.get(id) || selectedProductsCache[id])
+      .map((id) => byId.get(id) || (!isAlreadyStockView ? selectedProductsCache[id] : undefined))
       .filter((p): p is ConsignProduct => Boolean(p));
-  }, [activeProductsList, currentMerchantProducts, selectedProductIds, selectedProductsCache]);
+  }, [activeProductsList, currentMerchantProducts, isAlreadyStockView, selectedProductIds, selectedProductsCache]);
 
   const unitCostEach = useMemo(() => {
     if (selectedProductsList.length === 0) return 0;
@@ -1296,12 +1304,15 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
                 type="button"
                 aria-expanded={isMerchantDropdownOpen}
                 aria-controls="merchant-dropdown-menu"
-                onClick={() => setIsMerchantDropdownOpen(!isMerchantDropdownOpen)}
+                onClick={() => {
+                  if (!isMerchantDropdownOpen) refreshMerchants(true);
+                  setIsMerchantDropdownOpen(!isMerchantDropdownOpen);
+                }}
                 className="w-full flex items-center justify-between h-9 px-3 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 font-medium hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-300 transition-all text-left"
               >
                 <span className="truncate">
                   {selectedMerchant.id
-                    ? selectedMerchant.name + ' · bal $' + selectedMerchant.balance.toFixed(2) + ' · ' + (selectedMerchant.productsCount ?? 0) + ' stocked'
+                    ? selectedMerchant.name + ' · bal $' + selectedMerchant.balance.toFixed(2) + (selectedMerchant.productsCount ? ' · ' + selectedMerchant.productsCount.toLocaleString() + ' stocked' : '')
                     : !merchants && !merchantError ? 'Loading registered sellers…' : 'Select a merchant'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0 ml-2" />
@@ -1312,12 +1323,12 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
                 <div id="merchant-dropdown-menu" className="absolute top-full left-0 mt-1 w-full max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl z-30 py-1 text-xs">
                   {!merchants && !merchantError && <p role="status" className="px-3 py-2 text-gray-600">Loading registered sellers…</p>}
                   {merchantError && !merchants && (
-                    <button type="button" onClick={refreshMerchants} className="w-full px-3 py-2 text-left text-rose-700">
+                    <button type="button" onClick={() => refreshMerchants(true)} className="w-full px-3 py-2 text-left text-rose-700">
                       Could not load sellers. Retry
                     </button>
                   )}
-                  {merchants?.length === 0 && <p className="px-3 py-2 text-gray-600">No registered sellers.</p>}
-                  {merchants?.map((m) => (
+                  {verifiedMerchants?.length === 0 && <p className="px-3 py-2 text-gray-600">No verified sellers.</p>}
+                  {verifiedMerchants?.map((m) => (
                     <button
                       key={m.id}
                       data-merchant-id={m.id}
@@ -1333,7 +1344,7 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
                         )}
                         {m.productsCount !== undefined && m.productsCount > 0 && (
                           <span className="inline-flex items-center px-1.5 py-0.2 text-[10px] rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                            {m.productsCount} stocked
+                            {m.productsCount.toLocaleString()} stocked
                           </span>
                         )}
                       </span>
@@ -1493,7 +1504,15 @@ export function AdminConsignView({ adminEmail, notify, initialTab = 'consign' }:
                   : consignLoading ? 'Loading Consign products…'
                     : consignError || (productCategory === 'All categories' && !productSearch.trim() ? 'The Consign catalog is empty.' : 'No products match these filters.')}
               </p>
-              {isAlreadyStockView && <p className="text-[11px] text-gray-400 mt-0.5">No "Already Stock" products found for {selectedMerchant.name}.</p>}
+              {isAlreadyStockView && selectedMerchant.email && (
+                <p className="text-[11px] text-gray-500 mt-0.5" role="status">
+                  {stockErrorEmail === selectedMerchant.email
+                    ? 'Could not load this seller’s stock. Retrying…'
+                    : merchantProducts?.email !== selectedMerchant.email
+                      ? 'Loading this seller’s stock…'
+                      : 'No matching stocked products for ' + selectedMerchant.name + '.'}
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2 min-h-[694px] content-start">

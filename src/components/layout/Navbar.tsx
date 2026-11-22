@@ -39,7 +39,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
   const { totalItems } = useCart();
   const { totalWishlistItems } = useWishlist();
   const { products: compareProducts } = useCompare();
-  const { categories, products, isLoading, error } = useStorefrontCatalog();
+  const { categories, total, isLoading, error } = useStorefrontCatalog();
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
@@ -205,7 +205,7 @@ export default function Navbar({ websiteInfo }: { websiteInfo: WebsiteInfo }) {
             </div>
             <nav aria-label="Store categories" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
               <Link href="/shop" onClick={() => categoryDialogRef.current?.close()} className="mb-3 flex min-h-12 items-center justify-between rounded-md bg-[#14263d] px-4 text-sm font-semibold text-white transition hover:bg-[#203a5b]">
-                <span>All products</span><span className="flex items-center gap-2 text-xs text-white/80">{!isLoading && !error && products.length.toLocaleString('en-US')} <ArrowRight size={15} /></span>
+                <span>All products</span><span className="flex items-center gap-2 text-xs text-white/80">{!isLoading && !error && total.toLocaleString('en-US')} <ArrowRight size={15} /></span>
               </Link>
               {!categories.length && <p role="status" className="px-2 py-3 text-sm text-[#656f7a]">{isLoading ? 'Loading categories…' : error || 'No categories yet.'}</p>}
               <ul className="divide-y divide-[#eee7dc]">

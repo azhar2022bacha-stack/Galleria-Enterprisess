@@ -14,7 +14,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import { StorefrontCatalogProvider, useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 import { getStoreCategory } from '@/lib/storeCatalog';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
@@ -445,7 +445,7 @@ function LegacyShopContent() {
 
 function ShopContent() {
   const searchParams = useSearchParams();
-  return searchParams.get('catalog') === 'legacy' ? <LegacyShopContent /> : <StorehouseShop key={searchParams.toString()} />;
+  return searchParams.get('catalog') === 'legacy' ? <StorefrontCatalogProvider forceFull><LegacyShopContent /></StorefrontCatalogProvider> : <StorehouseShop key={searchParams.toString()} />;
 }
 
 export default function ShopPage() {

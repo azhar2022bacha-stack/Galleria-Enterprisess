@@ -13,7 +13,7 @@ import {
   ArrowLeft,
   Scale,
 } from 'lucide-react';
-import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import type { CatalogProduct } from '@/lib/storefrontCatalogServer';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
@@ -25,8 +25,11 @@ export default function ProductDetailPage() {
   const params = useParams();
   const id = params?.id as string;
 
-  const { products: catalogProducts, isLoading, error } = useStorefrontCatalog();
-  const product = catalogProducts.find((item) => item.id === id);
+  const [retry, setRetry] = useState(0);
+  const [details, setDetails] = useState<{ id: string; retry: number; product?: CatalogProduct; related?: CatalogProduct[]; error?: string }>();
+  const loaded = details?.id === id && details.retry === retry ? details : undefined;
+  const product = loaded?.product;
+  const error = loaded?.error;
 
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
@@ -46,21 +49,36 @@ export default function ProductDetailPage() {
   }, [product?.id]);
   useEffect(() => {
     if (!id) return;
+    const controller = new AbortController();
     let active = true;
-    setReviewSummary({ productId: id, count: 0, average: 0 });
-    fetch(`/api/product-reviews?scope=public&productId=${encodeURIComponent(id)}`, { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load reviews.')))
-      .then((result) => { if (active && result.success) setReviewSummary({ productId: id, count: Number(result.count) || 0, average: Number(result.ratingAverage) || 0 }); })
-      .catch(() => { if (active) setReviewSummary({ productId: id, count: 0, average: 0 }); });
-    return () => { active = false; };
-  }, [id]);
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    async function load() {
+      try {
+        const response = await fetch('/api/storefront-catalog?scope=detail&id=' + encodeURIComponent(id), { cache: 'no-store', signal: controller.signal });
+        if (!response.ok && response.status !== 404) throw new Error('Catalog request failed.');
+        const data = await response.json();
+        if (active) setDetails({ id, retry, product: data.product ?? undefined, related: data.related });
+      } catch {
+        if (active) setDetails({ id, retry, error: 'Could not load the product. Please try again.' });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [id, retry]);
 
   if (!product) {
-    if (isLoading) return <div className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">Loading product details…</div>;
+    if (!loaded) return <div className="min-h-[55vh] bg-[#f8f6f1] px-4 py-24 text-center text-sm text-[#687586]">Loading product details…</div>;
     return (
       <div className="mx-auto max-w-7xl px-4 py-24 text-center">
         <h2 className="text-2xl font-serif font-bold text-[#0c1b33]">{error ? 'Catalog unavailable' : 'Product Not Found'}</h2>
         <p className="text-sm text-gray-500 mt-2">{error || 'The product you are looking for does not exist.'}</p>
+        {error && <button type="button" className="mx-auto mt-3 block text-sm underline" onClick={() => setRetry((value) => value + 1)}>Retry loading product</button>}
         <Link
           href="/shop"
           className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-[#0c1b33] text-white rounded text-xs font-semibold"
@@ -73,13 +91,11 @@ export default function ProductDetailPage() {
   }
 
   const isWish = isInWishlist(product.id);
-  const reviewCount = reviewSummary.productId === product.id ? reviewSummary.count : 0;
-  const reviewRating = reviewSummary.productId === product.id ? reviewSummary.average : 0;
+  const reviewCount = reviewSummary.productId === product.id ? reviewSummary.count : product.reviewCount;
+  const reviewRating = reviewSummary.productId === product.id ? reviewSummary.average : product.rating;
   const canAddToCart = product.inStock && product.stockQuantity > 0;
   const productImages = [...new Set([product.image, ...(product.additionalImages || [])].filter(Boolean))];
-  const relatedProducts = catalogProducts.filter(
-    (p) => p.id !== product.id && (p.storeCategorySlug || p.categorySlug) === (product.storeCategorySlug || product.categorySlug)
-  ).slice(0, 4);
+  const relatedProducts = loaded?.related ?? [];
 
   return (
     <div className="min-h-screen bg-[#f8f6f1] py-8 sm:py-12">

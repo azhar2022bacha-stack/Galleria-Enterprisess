@@ -1,17 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowDown, ArrowLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
 import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
+import type { CatalogProduct } from '@/lib/storefrontCatalogServer';
 import { getStoreCategory } from '@/lib/storeCatalog';
 import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { StorefrontProductCard } from '@/components/product/StorefrontProductCard';
 
-const PAGE_SIZE = 24;
+type CatalogPages = { key: string; pages: CatalogProduct[][]; totalCount: number };
 
 const countLabel = (count: number) => count.toLocaleString('en-US');
 const categoryClass = 'shrink-0 rounded-md border border-[#ded3c2] bg-[#fffdf9] px-3 py-2 text-xs font-semibold text-[color:var(--website-primary)] transition hover:border-[#ab9471] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] aria-pressed:border-[#14263d] aria-pressed:bg-[#14263d] aria-pressed:text-white';
@@ -23,7 +24,10 @@ export default function StorehouseShop() {
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [sort, setSort] = useState(searchParams.get('sort') === 'newest' ? 'newest' : 'default');
   const [page, setPage] = useState(1);
-  const { categories, products: catalogProducts, isLoading, error } = useStorefrontCatalog();
+  const { categories, total: catalogTotal } = useStorefrontCatalog();
+  const [catalog, setCatalog] = useState<CatalogPages>();
+  const [retry, setRetry] = useState(0);
+  const [failedRequest, setFailedRequest] = useState('');
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { products: compareProducts, toggleProduct: toggleCompareProduct, hasProduct: isInCompare, limit: compareLimit } = useCompare();
@@ -32,25 +36,46 @@ export default function StorehouseShop() {
   const selectedCategory = categories.find((item) => item.slug === category)
     || categories.find((item) => item.slug === legacyCategorySlug);
   const categorySlug = selectedCategory?.slug || category;
-  const matchingProducts = useMemo(() => {
-    const selection = categorySlug ? catalogProducts.filter((product) => product.storeCategorySlug === categorySlug) : catalogProducts;
-    const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const matching = terms.length ? selection.filter((product) => {
-      const description = [product.title, product.brand, product.sku, product.description, product.category].join(' ').toLowerCase();
-      return terms.every((term) => description.includes(term));
-    }) : [...selection];
-
-    if (sort === 'newest') return matching.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    if (sort === 'price-low') return matching.sort((a, b) => a.price - b.price);
-    if (sort === 'price-high') return matching.sort((a, b) => b.price - a.price);
-    if (sort === 'name-asc') return matching.sort((a, b) => a.title.localeCompare(b.title));
-    if (sort === 'name-desc') return matching.sort((a, b) => b.title.localeCompare(a.title));
-    return matching;
-  }, [catalogProducts, categorySlug, search, sort]);
-  const totalCount = matchingProducts.length;
-  const products = matchingProducts.slice(0, page * PAGE_SIZE);
-
+  const filters = new URLSearchParams({ category, search: search.trim(), sort }).toString();
+  const current = catalog?.key === filters ? catalog : undefined;
+  const nextPage = (current?.pages.length ?? 0) + 1;
+  const products = current?.pages.slice(0, page).flat() ?? [];
+  const totalCount = current?.totalCount ?? 0;
   const canLoadMore = products.length < totalCount;
+  const requestKey = filters + '&page=' + nextPage + '&retry=' + retry;
+  const error = failedRequest === requestKey ? 'Unable to load products. Please try again.' : '';
+  const isLoading = !error && nextPage <= page && (!current || canLoadMore);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const controller = new AbortController();
+    let active = true;
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    async function load() {
+      try {
+        const response = await fetch('/api/storefront-catalog?' + requestKey, { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Catalog request failed.');
+        const data = await response.json();
+        if (!active) return;
+        setCatalog((previous) => ({
+          key: filters,
+          pages: [...(previous?.key === filters ? previous.pages : []), data.products],
+          totalCount: data.totalCount,
+        }));
+      } catch {
+        if (active) setFailedRequest(requestKey);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    const debounce = setTimeout(() => void load(), search.trim() ? 180 : 0);
+    return () => {
+      active = false;
+      clearTimeout(debounce);
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [filters, isLoading, requestKey, search]);
 
   const changeCategory = (slug: string) => {
     if (slug === categorySlug) return;
@@ -108,7 +133,7 @@ export default function StorehouseShop() {
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#14263d]"><SlidersHorizontal size={16} strokeWidth={1.7} aria-hidden="true" className="text-[#806640]" /> Filter by category</h2>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeCategory('')} aria-pressed={!categorySlug} className={categoryClass}>
-              All Categories <span className="ml-1 opacity-75">{countLabel(catalogProducts.length)}</span>
+              All Categories <span className="ml-1 opacity-75">{countLabel(catalogTotal)}</span>
             </button>
             {categories.map((category) => (
               <button key={category.id} type="button" onClick={() => changeCategory(category.slug)} aria-pressed={categorySlug === category.slug} className={categoryClass}>
@@ -127,8 +152,8 @@ export default function StorehouseShop() {
           <p role="status" className="border border-[#e6ded0] bg-[#fffdf9] px-4 py-16 text-center text-sm text-[#626a73]">Loading products…</p>
         ) : products.length === 0 ? (
           <div className="border border-[#e6ded0] bg-[#fffdf9] px-4 py-16 text-center">
-            <h2 className="font-serif text-2xl text-[#14263d]">{error ? 'Catalog unavailable' : catalogProducts.length ? 'No products found' : 'No products available yet'}</h2>
-            {error ? <p className="mt-2 text-sm text-[#626a73]">{error}</p> : (search || categorySlug) && (
+            <h2 className="font-serif text-2xl text-[#14263d]">{error ? 'Catalog unavailable' : categorySlug || search ? 'No products found' : 'No products available yet'}</h2>
+            {error ? <button type="button" className="mt-3 text-sm underline" onClick={() => setRetry((value) => value + 1)}>Retry loading products</button> : (search || categorySlug) && (
               <>
                 <p className="mt-2 text-sm text-[#626a73]">Try another search or browse a different category.</p>
                 <button type="button" onClick={() => { changeSearch(''); changeCategory(''); }} className="mt-5 min-h-11 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a77e43]">Clear filters</button>
@@ -160,7 +185,8 @@ export default function StorehouseShop() {
             {(page > 1 || canLoadMore) && (
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 {page > 1 && <button type="button" onClick={() => setPage((current) => current - 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md border border-[#bda989] bg-[#fffdf9] px-5 text-sm font-semibold text-[#14263d] hover:border-[#14263d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]"><ArrowLeft size={16} /> Show fewer products</button>}
-                {canLoadMore && <button type="button" onClick={() => setPage((current) => current + 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white transition hover:bg-[#203a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">Load more products <ArrowDown size={16} /></button>}
+                {error && <button type="button" className="underline" onClick={() => setRetry((value) => value + 1)}>Retry loading products</button>}
+                {canLoadMore && !error && <button type="button" disabled={isLoading} onClick={() => setPage((current) => current + 1)} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-[#14263d] px-5 text-sm font-semibold text-white transition hover:bg-[#203a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">{isLoading ? 'Loading products…' : 'Load more products'} <ArrowDown size={16} /></button>}
               </div>
             )}
           </>

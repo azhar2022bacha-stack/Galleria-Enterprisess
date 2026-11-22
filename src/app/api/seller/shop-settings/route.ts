@@ -6,6 +6,7 @@ import {
   saveSellerShopSettingsServer,
 } from '@/lib/sellerShopSettingsServer';
 import type { StoredShopSettings } from '@/lib/sellerShopSettingsServer';
+import { countShopDescriptionWords, MAX_SHOP_DESCRIPTION_WORDS } from '@/lib/sellerShopDescription';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
 
 const MAX_LOGO_BYTES = 8 * 1024 * 1024;
@@ -50,8 +51,8 @@ export async function PUT(request: Request) {
     if (!shopName || shopName.length > 80) {
       return NextResponse.json({ success: false, error: 'Shop name must be between 1 and 80 characters.' }, { status: 400 });
     }
-    if (description.length > 2000) {
-      return NextResponse.json({ success: false, error: 'Description can be up to 2,000 characters.' }, { status: 400 });
+    if (countShopDescriptionWords(description) > MAX_SHOP_DESCRIPTION_WORDS) {
+      return NextResponse.json({ success: false, error: `Description can be up to ${MAX_SHOP_DESCRIPTION_WORDS} words.` }, { status: 400 });
     }
     if (logoUrl) {
       const match = logoUrl.match(/^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);

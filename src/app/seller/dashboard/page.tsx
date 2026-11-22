@@ -22,6 +22,7 @@ import {
   getCurrentPackageTier,
   SellerOrder,
 } from '@/lib/sellerOrders';
+import type { ShopSettings } from '@/lib/sellerOrders';
 import { summarizeSellerDashboardOrders } from '@/lib/sellerDashboardMetrics';
 import { DemoProduct } from '@/types/product';
 import { getEligibleDemoProducts } from '@/lib/mock-products';
@@ -608,7 +609,27 @@ export default function SellerDashboardPage() {
     };
   }, []);
 
-  const merchantName = merchantProfile.shopName || merchantProfile.fullName || 'Ansar collection';
+  const [shopSettings, setShopSettings] = useState<ShopSettings | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadShopSettings() {
+      try {
+        const response = await fetch('/api/seller/shop-settings', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.success && !controller.signal.aborted) {
+          setShopSettings((saved) => saved ?? data.settings);
+        }
+      } catch {
+        // The account name remains available if the shop profile cannot be loaded.
+      }
+    }
+    void loadShopSettings();
+    return () => controller.abort();
+  }, []);
+
+  const merchantName = shopSettings?.shopName || merchantProfile.shopName || merchantProfile.fullName || 'Ansar collection';
   const merchantInitial = (merchantName.trim().charAt(0) || 'A').toUpperCase();
   const isApproved = sellerStatus === 'approved' && sellerIdStatus === 'Verified';
 
@@ -1370,16 +1391,19 @@ export default function SellerDashboardPage() {
                   <span className="text-xs font-bold text-[#2563eb] uppercase tracking-wider block">
                     SELLER COMMAND CENTER
                   </span>
-                  <div className="flex items-center gap-2.5 mt-0.5">
-                    <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2.5">
+                    {shopSettings?.logoUrl && (
+                      <img src={shopSettings.logoUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-gray-200 bg-white object-contain" />
+                    )}
+                    <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-gray-900">
                       {merchantName}
                     </h1>
                     <span className="px-2.5 py-0.5 rounded-full bg-[#e6f9f0] border border-[#a7f3d0] text-[#059669] text-xs font-semibold">
                       Credit score 100
                     </span>
                   </div>
-                  <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                    Live inventory, order movement, and sales health for your shop.
+                  <p className="mt-1 max-w-prose whitespace-pre-wrap break-words text-xs text-gray-500 sm:text-sm">
+                    {shopSettings?.description || 'Live inventory, order movement, and sales health for your shop.'}
                   </p>
                 </div>
 
@@ -1852,6 +1876,7 @@ export default function SellerDashboardPage() {
           {activeNav === 'settings' && (
             <SellerSettingsPanel
               onOpenNotifications={() => setActiveNav('notifications')}
+              onShopSettingsSaved={setShopSettings}
               notify={notify}
             />
           )}

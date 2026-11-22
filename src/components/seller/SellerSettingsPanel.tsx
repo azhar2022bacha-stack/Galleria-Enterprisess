@@ -11,15 +11,12 @@ import {
   Store,
   Trash2,
 } from 'lucide-react';
-import {
-  getShopSettings,
-  hasSavedShopSettings,
-  saveShopSettings,
-} from '@/lib/sellerOrders';
+import { countShopDescriptionWords, MAX_SHOP_DESCRIPTION_WORDS } from '@/lib/sellerShopDescription';
 import type { ShopSettings } from '@/lib/sellerOrders';
 
 interface SellerSettingsPanelProps {
   onOpenNotifications: () => void;
+  onShopSettingsSaved: (settings: ShopSettings) => void;
   notify?: (msg: string) => void;
 }
 
@@ -33,60 +30,66 @@ async function getResponseData(response: Response) {
   return data;
 }
 
-export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSettingsPanelProps) {
+export function SellerSettingsPanel({ onOpenNotifications, onShopSettingsSaved, notify }: SellerSettingsPanelProps) {
   const [shopName, setShopName] = useState('');
   const [description, setDescription] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [savingBasicInfo, setSavingBasicInfo] = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [readingLogo, setReadingLogo] = useState(false);
+  const [basicError, setBasicError] = useState('');
+  const wordCount = countShopDescriptionWords(description);
+  const descriptionTooLong = wordCount > MAX_SHOP_DESCRIPTION_WORDS;
+  const basicFieldsDisabled = !settingsLoaded || savingBasicInfo;
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  function applySettings(settings: ShopSettings) {
+    setShopName(settings.shopName);
+    setDescription(settings.description);
+    setLogoUrl(settings.logoUrl || null);
+  }
+
   useEffect(() => {
-    const applySettings = (settings: ShopSettings) => {
-      setShopName(settings.shopName || 'Ansar collection');
-      setDescription(settings.description || '');
-      setLogoUrl(settings.logoUrl || null);
-    };
-
-    fetch('/api/seller/shop-settings', { cache: 'no-store' })
+    const controller = new AbortController();
+    fetch('/api/seller/shop-settings', { cache: 'no-store', signal: controller.signal })
       .then(getResponseData)
-      .then((data) => {
-        if (data.hasSavedSettings) {
-          setShopName('');
-          setDescription('');
-          setLogoUrl(null);
-          return;
-        }
-
-        if (hasSavedShopSettings()) {
-          applySettings(getShopSettings());
-        } else {
-          applySettings(data.settings);
-          saveShopSettings(data.settings);
-        }
+      .then(({ settings }) => {
+        if (controller.signal.aborted) return;
+        applySettings(settings);
+        setSettingsLoaded(true);
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (!controller.signal.aborted) setBasicError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingSettings(false);
+      });
+    return () => controller.abort();
   }, []);
 
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    event.target.value = '';
+    setBasicError('');
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      notify?.('Choose a JPG, PNG, or WebP image.');
-      event.target.value = '';
+      setBasicError('Choose a JPG, PNG, or WebP image.');
       return;
     }
     if (file.size > MAX_LOGO_SIZE) {
-      notify?.('The logo must be 8 MB or smaller.');
-      event.target.value = '';
+      setBasicError('The logo must be 8 MB or smaller.');
       return;
     }
 
+    setReadingLogo(true);
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
@@ -94,12 +97,15 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
         notify?.('Logo ready. Save your shop settings to publish it.');
       }
     };
-    reader.onerror = () => notify?.('Could not read that image. Please choose another file.');
+    reader.onerror = () => setBasicError('Could not read that image. Please choose another file.');
+    reader.onloadend = () => setReadingLogo(false);
     reader.readAsDataURL(file);
   };
 
   const handleSaveBasicInfo = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (basicFieldsDisabled || readingLogo || descriptionTooLong) return;
+    setBasicError('');
     setSavingBasicInfo(true);
     try {
       const response = await fetch('/api/seller/shop-settings', {
@@ -113,14 +119,11 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
       });
       const data = await getResponseData(response);
       const saved = data.settings as ShopSettings;
-      saveShopSettings(saved);
-      setShopName('');
-      setDescription('');
-      setLogoUrl(null);
-      if (logoInputRef.current) logoInputRef.current.value = '';
-      notify?.('Shop settings saved. The form is clear for your next update.');
+      applySettings(saved);
+      onShopSettingsSaved(saved);
+      notify?.('Shop settings saved.');
     } catch (error: any) {
-      notify?.(error?.message || 'Could not save shop settings.');
+      setBasicError(error?.message || 'Could not save shop settings.');
     } finally {
       setSavingBasicInfo(false);
     }
@@ -128,6 +131,8 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
 
   const handleUpdatePassword = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (updatingPassword) return;
+    setPasswordError('');
     setUpdatingPassword(true);
     try {
       const response = await fetch('/api/seller/change-password', {
@@ -140,7 +145,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
       setCurrentPassword('');
       setNewPassword('');
     } catch (error: any) {
-      notify?.(error?.message || 'Could not update your password.');
+      setPasswordError(error?.message || 'Could not update your password.');
     } finally {
       setUpdatingPassword(false);
     }
@@ -183,6 +188,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
             <input
               id="seller-shop-name"
               type="text"
+              disabled={basicFieldsDisabled}
               value={shopName}
               onChange={(event) => setShopName(event.target.value)}
               maxLength={80}
@@ -204,6 +210,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   ref={logoInputRef}
+                  disabled={basicFieldsDisabled || readingLogo}
                   type="file"
                   onChange={handleLogoUpload}
                   accept="image/jpeg,image/png,image/webp"
@@ -211,6 +218,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
                 />
                 <button
                   type="button"
+                  disabled={basicFieldsDisabled || readingLogo}
                   onClick={() => logoInputRef.current?.click()}
                   className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-900/15"
                 >
@@ -220,6 +228,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
                 {logoUrl && (
                   <button
                     type="button"
+                    disabled={basicFieldsDisabled || readingLogo}
                     onClick={() => setLogoUrl(null)}
                     className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
                   >
@@ -237,23 +246,27 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
               <label htmlFor="seller-shop-description" className="block text-xs font-semibold text-slate-700">
                 Description
               </label>
-              <span className="text-[11px] text-slate-400">{description.length}/2,000</span>
+              <span id="seller-shop-description-count" className={descriptionTooLong ? "text-xs font-semibold text-red-700" : "text-xs text-slate-500"}>{wordCount} / {MAX_SHOP_DESCRIPTION_WORDS} words</span>
             </div>
             <textarea
               id="seller-shop-description"
               rows={4}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              maxLength={2000}
+              disabled={basicFieldsDisabled}
+              aria-invalid={descriptionTooLong}
+              aria-describedby="seller-shop-description-count"
               placeholder="Tell shoppers what makes your shop special"
               className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
             />
           </div>
 
+          {loadingSettings && <p role="status" className="text-sm text-slate-500">Loading shop settings…</p>}
+          {basicError && <p role="alert" className="text-sm text-red-700">{basicError}</p>}
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center">
             <button
               type="submit"
-              disabled={savingBasicInfo}
+              disabled={basicFieldsDisabled || readingLogo || descriptionTooLong}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-700/15 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {savingBasicInfo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -353,6 +366,7 @@ export function SellerSettingsPanel({ onOpenNotifications, notify }: SellerSetti
             </button>
             <span className="text-[11px] text-slate-500">You will stay signed in on this device.</span>
           </div>
+          {passwordError && <p role="alert" className="text-sm text-red-700">{passwordError}</p>}
         </form>
       </section>
     </div>

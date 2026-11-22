@@ -1101,7 +1101,8 @@ export async function updateSellerLoginPasswordServer(
   const normalizedEmail = (email || '').trim().toLowerCase();
   if (!normalizedEmail || !newPassword) return false;
 
-  const salt = `${normalizedEmail}_${Date.now()}_${randomBytes(8).toString('hex')}`;
+  // The combined login hash carries its own salt. Keep the legacy account salt for the transaction password.
+  const salt = randomBytes(16).toString('hex');
   const hash = await hashPasswordWithSalt(newPassword, salt);
   const combinedHash = `${salt}$${hash}`;
 
@@ -1110,15 +1111,15 @@ export async function updateSellerLoginPasswordServer(
   const updatedSellers = diskSellers.map((seller) => {
     if (seller.email.toLowerCase() !== normalizedEmail) return seller;
     updatedDisk = true;
-    return { ...seller, loginHash: combinedHash, salt };
+    return { ...seller, loginHash: combinedHash };
   });
   const diskSaved = updatedDisk && writeDiskSellers(updatedSellers);
 
   const dbOnline = await isDbConnected();
   if (!dbOnline) return diskSaved;
   const result = await dbQuery<{ email: string }>(
-    'UPDATE sellers SET login_hash = $1, salt = $2 WHERE LOWER(email) = $3 RETURNING email',
-    [combinedHash, salt, normalizedEmail]
+    'UPDATE sellers SET login_hash = $1 WHERE LOWER(email) = $2 RETURNING email',
+    [combinedHash, normalizedEmail]
   );
   if (!result) return false;
   return diskSaved || Boolean(result.rowCount);

@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { Heart, Scale, ShoppingBag } from 'lucide-react';
+import { Heart, Scale } from 'lucide-react';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
+import { StorefrontCardPurchase } from '@/components/product/StorefrontCardPurchase';
 import type { Product } from '@/types';
 
 interface StorefrontProductCardProps {
@@ -43,13 +44,8 @@ export function StorefrontProductCard({ product, saved, onWishlist, onAdd, compa
         <p className="truncate text-[10px] font-semibold uppercase tracking-[0.09em] text-[#755c37] sm:text-[11px]">{product.subcategory || product.category}</p>
         <Link href={productUrl} prefetch={false} className="mt-1.5 line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-[#14263d] hover:underline hover:underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] sm:text-base">{product.title}</Link>
         <p className="mt-1 truncate text-xs text-[#626a73]">{comparison ? [product.brand, product.sku].filter(Boolean).join(' · ') : product.brand}</p>
-        <div className="mt-auto flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 pt-3">
-          <span className="text-base font-semibold tracking-tight text-[#14263d] sm:text-lg">${product.price.toFixed(2)}</span>
-          {comparison && available && <span className="text-[11px] font-medium text-[#4e6651]">{product.stockQuantity} available</span>}
-        </div>
-        <button type="button" onClick={onAdd} disabled={!available} aria-label={available ? 'Add ' + product.title + ' to cart' : product.title + ' is out of stock'} className="mt-2.5 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-md border border-[#cdbfa8] bg-[#fffdf9] px-1.5 text-xs font-semibold text-[color:var(--website-primary)] transition hover:border-[#14263d] hover:bg-[#14263d] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43] disabled:cursor-not-allowed disabled:border-[#e5dfd4] disabled:bg-[#f2eee7] disabled:text-[#666d76] sm:gap-2 sm:text-sm">
-          <ShoppingBag size={15} strokeWidth={1.65} />{available ? 'Add to cart' : 'Out of stock'}
-        </button>
+        {comparison && available && <span className="mt-1 text-[11px] font-medium text-[#4e6651]">{product.stockQuantity} available</span>}
+        <StorefrontCardPurchase product={product} onAdd={onAdd} />
       </div>
     </article>
   );

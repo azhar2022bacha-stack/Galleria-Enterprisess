@@ -70,12 +70,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       showToast(`"${product.title}" is currently out of stock.`);
       return;
     }
+    const color = selectedColor || product.colors?.[0];
+    const size = selectedSize || product.sizes?.[0];
     setItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) =>
           item.product.id === product.id &&
-          item.selectedColor === selectedColor &&
-          item.selectedSize === selectedSize
+          item.selectedColor === color &&
+          item.selectedSize === size
       );
 
       if (existingIndex > -1) {
@@ -97,8 +99,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             id: `${product.id}-${Date.now()}`,
             product,
             quantity: cappedQuantity,
-            selectedColor: selectedColor || product.colors?.[0],
-            selectedSize: selectedSize || product.sizes?.[0],
+            selectedColor: color,
+            selectedSize: size,
           },
         ];
       }

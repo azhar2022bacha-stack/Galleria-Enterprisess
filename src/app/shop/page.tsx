@@ -9,7 +9,6 @@ import {
   SlidersHorizontal,
   Star,
   Heart,
-  ShoppingBag,
   Scale,
   RotateCcw,
   Search,
@@ -21,6 +20,7 @@ import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
+import { StorefrontCardPurchase } from '@/components/product/StorefrontCardPurchase';
 import StorehouseShop from '@/components/storehouse/StorehouseShop';
 
 const PRICE_FILTER_MAX = 300;
@@ -33,8 +33,7 @@ function LegacyShopContent() {
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { products: compareProducts, toggleProduct: toggleCompareProduct, hasProduct: isInCompare, limit: compareLimit } = useCompare();
-  const { products: catalogProducts, categories: storeCategories, isLoading, error } = useStorefrontCatalog();
-  const [reviewSummaries, setReviewSummaries] = useState<Record<string, { count: number; ratingAverage: number }>>({});
+  const { products, categories: storeCategories, isLoading, error } = useStorefrontCatalog();
   const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory);
   const categorySlug = storeCategories.some((category) => category.slug === selectedCategory)
     ? selectedCategory : getStoreCategory(selectedCategory)?.slug || selectedCategory;
@@ -46,19 +45,6 @@ function LegacyShopContent() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const filtersMenuId = useDismissMenusOnOutsideClick(mobileFiltersOpen, () => setMobileFiltersOpen(false));
 
-  useEffect(() => {
-    let active = true;
-    fetch('/api/product-reviews?scope=summary', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load rating summaries.')))
-      .then((result) => { if (active && result.success && result.summaries && typeof result.summaries === 'object') setReviewSummaries(result.summaries); })
-      .catch(() => { if (active) setReviewSummaries({}); });
-    return () => { active = false; };
-  }, []);
-
-  const products = React.useMemo(() => catalogProducts.map((product) => {
-    const summary = reviewSummaries[product.id];
-    return { ...product, rating: summary?.ratingAverage || 0, reviewCount: summary?.count || 0 };
-  }), [catalogProducts, reviewSummaries]);
   const priceFilterMax = Math.max(PRICE_FILTER_MAX, Math.ceil(products.reduce((max, product) => Math.max(max, product.price), 0) / 50) * 50);
   const searchSuggestions = React.useMemo(() => Array.from(new Set(
     products.flatMap((product) => [product.title, product.brand || '', product.category, product.sku]).filter(Boolean)
@@ -441,43 +427,7 @@ function LegacyShopContent() {
                         </Link>
                         {product.sellerStoreSlug && <Link href={`/stores/${product.sellerStoreSlug}`} className="mt-0.5 block truncate text-[9px] font-medium text-[#8a7350] hover:text-[#14263d]">Sold by {product.brand}</Link>}
 
-                        {/* Price */}
-                        <div className="mt-auto flex items-center gap-1.5 pt-1.5">
-                          <span className="truncate text-xs font-bold tracking-tight text-[#14263d] sm:text-sm">
-                            ${product.price.toFixed(2)}
-                          </span>
-                          {product.originalPrice && (
-                            <span className="text-[10px] text-gray-400 line-through">
-                              ${product.originalPrice.toFixed(2)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Star Rating */}
-                        <div className="mt-1 flex min-h-4 items-center gap-1 text-[9px] text-[#758092]" aria-label={product.reviewCount > 0 ? `${product.rating} out of 5 stars, ${product.reviewCount} reviews` : 'No customer reviews yet'}>
-                          {product.reviewCount > 0 ? (
-                            <>
-                              <div className="flex items-center text-[#b99152]" aria-hidden="true">
-                                {[...Array(5)].map((_, i) => (
-                                <Star key={i} className={`h-2.5 w-2.5 ${i < Math.round(product.rating) ? 'fill-current' : 'fill-transparent'}`} />
-                                ))}
-                              </div>
-                              <span>{product.rating.toFixed(1)} ({product.reviewCount})</span>
-                            </>
-                          ) : <span>No reviews yet</span>}
-                        </div>
-                      </div>
-
-                      {/* Action Button */}
-                      <div className="mt-2 border-t border-[#eee9df] pt-2">
-                        <button
-                          onClick={() => addToCart(product, 1)}
-                          disabled={!product.inStock || product.stockQuantity < 1}
-                          className="inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-full bg-[#14263d] px-2 text-[8px] font-bold uppercase tracking-[0.08em] text-white transition-all hover:bg-[#203a5b] disabled:cursor-not-allowed disabled:bg-slate-300 sm:text-[9px]"
-                        >
-                          <ShoppingBag className="h-3 w-3" />
-                          <span>{product.inStock && product.stockQuantity > 0 ? 'Add to Cart' : 'Out of Stock'}</span>
-                        </button>
+                        <StorefrontCardPurchase product={product} onAdd={() => addToCart(product, 1)} />
                       </div>
                     </div>
                   );

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { LoaderCircle, ShieldCheck, Star } from 'lucide-react';
+import { ProductRating } from './ProductRating';
 type PublicReview = {
   id: string;
   productId: string;
@@ -25,6 +26,8 @@ export function CustomerProductReviews({
 }) {
   const [reviews, setReviews] = useState<PublicReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [ratingAverage, setRatingAverage] = useState(0);
   const [sending, setSending] = useState(false);
   const [rating, setRating] = useState(5);
   const [orderNumber, setOrderNumber] = useState('');
@@ -35,6 +38,8 @@ export function CustomerProductReviews({
   const [error, setError] = useState('');
 
   const loadReviews = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
     try {
       const params = new URLSearchParams({ scope: 'public', productId });
       const response = await fetch(`/api/product-reviews?${params.toString()}`, { cache: 'no-store' });
@@ -42,16 +47,16 @@ export function CustomerProductReviews({
       if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load reviews.');
       const nextReviews = Array.isArray(result.reviews) ? result.reviews : [];
       setReviews(nextReviews);
+      setRatingAverage(Number(result.ratingAverage) || 0);
       onSummary({ productId, count: Number(result.count) || 0, average: Number(result.ratingAverage) || 0 });
     } catch {
-      setReviews([]);
-      onSummary({ productId, count: 0, average: 0 });
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   }, [onSummary, productId]);
 
-  useEffect(() => { setLoading(true); void loadReviews(); }, [loadReviews]);
+  useEffect(() => { void loadReviews(); }, [loadReviews]);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -82,9 +87,9 @@ export function CustomerProductReviews({
       <section aria-label="Customer reviews" className="space-y-4">
         <div className="flex items-end justify-between border-b border-[#e9e4da] pb-3">
           <div><h3 className="font-serif text-xl text-[#14263d]">Customer feedback</h3><p className="mt-1 text-xs text-[#758092]">Reviews are published after moderation.</p></div>
-          <span className="text-xs font-semibold text-[#758092]">{reviews.length} approved</span>
+          {reviews.length > 0 && !loadError && <ProductRating rating={ratingAverage} count={reviews.length} />}
         </div>
-        {loading ? <div className="flex items-center justify-center gap-2 py-12 text-xs text-[#758092]"><LoaderCircle className="h-4 w-4 animate-spin" />Loading reviews</div> : reviews.length === 0 ? <div className="rounded-xl border border-dashed border-[#e0ddd6] bg-white/70 px-4 py-10 text-center"><Star className="mx-auto h-6 w-6 text-[#bd9957]" /><p className="mt-2 text-sm font-semibold text-[#33445b]">No reviews yet</p><p className="mt-1 text-xs text-[#758092]">Be the first customer to share feedback on this product.</p></div> : reviews.map((review) => <article key={review.id} className="rounded-xl border border-[#e9e4da] bg-white p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#24364d]">{review.publicName}</p><p className="mt-0.5 text-[10px] text-[#758092]">{new Date(review.createdAt).toLocaleDateString()}</p></div><span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800"><ShieldCheck className="h-3 w-3" />Order matched</span></div><div className="mt-3 flex gap-0.5 text-[#bd9957]" aria-label={`${review.rating} out of 5 stars`}>{Array.from({ length: 5 }, (_, index) => <Star key={index} className={`h-3.5 w-3.5 ${index < review.rating ? 'fill-current' : ''}`} />)}</div><h4 className="mt-2 text-sm font-semibold text-[#24364d]">{review.title}</h4><p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[#687586]">{review.body}</p></article>)}
+        {loading ? <div className="flex items-center justify-center gap-2 py-12 text-xs text-[#758092]"><LoaderCircle className="h-4 w-4 animate-spin" />Loading reviews</div> : loadError ? <div role="alert" className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">Unable to load reviews. <button type="button" onClick={() => void loadReviews()} className="font-semibold underline">Try again</button></div> : reviews.length === 0 ? <div className="rounded-xl border border-dashed border-[#e0ddd6] bg-white/70 px-4 py-10 text-center"><Star className="mx-auto h-6 w-6 text-[#bd9957]" /><p className="mt-2 text-sm font-semibold text-[#33445b]">No reviews yet</p><p className="mt-1 text-xs text-[#758092]">Be the first customer to share feedback on this product.</p></div> : reviews.map((review) => <article key={review.id} className="rounded-xl border border-[#e9e4da] bg-white p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#24364d]">{review.publicName}</p><p className="mt-0.5 text-[10px] text-[#758092]">{new Date(review.createdAt).toLocaleDateString()}</p></div><span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800"><ShieldCheck className="h-3 w-3" />Order matched</span></div><div className="mt-3 flex gap-0.5 text-[#bd9957]" aria-label={`${review.rating} out of 5 stars`}>{Array.from({ length: 5 }, (_, index) => <Star key={index} className={`h-3.5 w-3.5 ${index < review.rating ? 'fill-current' : ''}`} />)}</div><h4 className="mt-2 text-sm font-semibold text-[#24364d]">{review.title}</h4><p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[#687586]">{review.body}</p></article>)}
       </section>
 
       <section className="h-fit rounded-2xl border border-[#e9e4da] bg-white p-5 shadow-sm sm:p-6">

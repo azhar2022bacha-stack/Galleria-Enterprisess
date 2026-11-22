@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Star, Heart, ShoppingBag, Tag } from 'lucide-react';
+import { Heart, Tag } from 'lucide-react';
+import { StorefrontCardPurchase } from '@/components/product/StorefrontCardPurchase';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
 import { useStorefrontCatalog } from '@/context/StorefrontCatalogContext';
 import { useCart } from '@/context/CartContext';
@@ -113,46 +114,8 @@ export default function DealsPage() {
                     {product.title}
                   </Link>
 
-                  {/* Price Comparison */}
-                  <div className="mt-auto flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 pt-2">
-                    <span className="text-xs font-bold text-red-600 sm:text-sm">
-                      ${product.price.toFixed(2)}
-                    </span>
-                    {product.originalPrice && (
-                      <span className="text-[9px] text-gray-400 line-through">
-                        ${product.originalPrice.toFixed(2)}
-                      </span>
-                    )}
-                    {savings > 0 && (
-                      <span className="text-[8px] font-semibold text-emerald-600">
-                        Save ${savings.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="mt-1 flex min-h-4 items-center gap-1 text-[9px] text-gray-500">
-                    {product.reviewCount > 0 ? (
-                      <>
-                        <div className="flex items-center text-[#c5a059]" aria-hidden="true">
-                          {[...Array(5)].map((_, i) => (
-                            <Star key={i} className={`h-2.5 w-2.5 ${i < Math.round(product.rating) ? 'fill-current' : 'fill-transparent'}`} />
-                          ))}
-                        </div>
-                        <span>{product.rating.toFixed(1)} ({product.reviewCount})</span>
-                      </>
-                    ) : <span>No reviews yet</span>}
-                  </div>
-                </div>
-
-                {/* Add to Cart button */}
-                <div className="mt-2 border-t border-gray-100 pt-2">
-                  <button
-                    onClick={() => addToCart(product, 1)}
-                    className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-full bg-[#0c1b33] px-2 py-1.5 text-[8px] font-semibold text-white transition-colors hover:bg-[#162b4e] sm:text-[9px]"
-                  >
-                    <ShoppingBag className="h-3 w-3" />
-                    <span>Add to bag</span>
-                  </button>
+                  {savings > 0 && <span className="mt-1 text-[10px] font-semibold text-emerald-700">Save ${savings.toFixed(2)}</span>}
+                  <StorefrontCardPurchase product={product} onAdd={() => addToCart(product, 1)} />
                 </div>
               </div>
             );

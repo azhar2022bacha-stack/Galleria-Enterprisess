@@ -5,7 +5,6 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
-  Star,
   Heart,
   ShoppingBag,
   Info,
@@ -19,6 +18,7 @@ import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useCompare } from '@/context/CompareContext';
 import { CustomerProductReviews } from '@/components/product/CustomerProductReviews';
+import { ProductRating } from '@/components/product/ProductRating';
 import { ProductCardImage } from '@/components/product/ProductCardImage';
 
 export default function ProductDetailPage() {
@@ -99,7 +99,7 @@ export default function ProductDetailPage() {
         </div>
 
         {/* Product Main Section */}
-        <div className="mb-10 rounded-3xl border border-[#e9e4da] bg-white p-4 shadow-[0_24px_70px_-54px_rgba(20,38,61,0.5)] sm:mb-14 sm:p-7 lg:p-10">
+        <div id="product-reviews" className="mb-10 scroll-mt-28 rounded-3xl border border-[#e9e4da] bg-white p-4 shadow-[0_24px_70px_-54px_rgba(20,38,61,0.5)] sm:mb-14 sm:p-7 lg:p-10">
           <div className="grid grid-cols-1 gap-7 lg:grid-cols-12 lg:gap-12">
             
             {/* Gallery Left (6 cols) */}
@@ -159,26 +159,10 @@ export default function ProductDetailPage() {
                   {product.title}
                 </h1>
 
-                {/* Ratings */}
-                <div
-                  className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#758092]"
-                  aria-label={reviewCount > 0 ? `${reviewRating} out of 5 stars, ${reviewCount} reviews` : 'No customer reviews yet'}
-                >
-                  {reviewCount > 0 ? (
-                    <>
-                      <div className="flex text-[#b99152]" aria-hidden="true">
-                        {[...Array(5)].map((_, i) => (
-                          <Star key={i} className={`h-3.5 w-3.5 ${i < Math.round(reviewRating) ? 'fill-current' : 'fill-transparent'}`} />
-                        ))}
-                      </div>
-                      <span className="font-semibold text-[#526071]">{reviewRating.toFixed(1)} / 5.0</span>
-                      <span className="text-gray-300">•</span>
-                      <span>{reviewCount} reviews</span>
-                    </>
-                  ) : (
-                    <span>No reviews yet</span>
-                  )}
-                </div>
+                <a href="#product-reviews" onClick={() => setActiveTab('reviews')}
+                  className="mt-4 inline-flex rounded-sm hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a77e43]">
+                  <ProductRating rating={reviewRating} count={reviewCount} />
+                </a>
 
                 {/* Price */}
                 <div className="mt-6 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-[#eee9df] pb-6">

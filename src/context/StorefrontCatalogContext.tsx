@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { StoreCategoryData } from '@/data/storeCategories';
 import type { RetailListing } from '@/lib/retailListings';
 import { retailListingToProduct } from '@/lib/retailListingProduct';
@@ -11,6 +11,8 @@ import type { Product } from '@/types';
 type CatalogCategory = StoreCategoryData & { catalogProductCount: number };
 type CatalogProduct = Product & { createdAt: string };
 type Catalog = { categories: CatalogCategory[]; products: CatalogProduct[] };
+
+type RatingSummaries = Record<string, { count: number; ratingAverage: number }>;
 
 const emptyCatalog: Catalog = { categories: [], products: [] };
 const StorefrontCatalogContext = createContext({
@@ -57,6 +59,7 @@ export function StorefrontCatalogProvider({ children }: { children: ReactNode })
   const [catalog, setCatalog] = useState(emptyCatalog);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [ratings, setRatings] = useState<RatingSummaries>({});
 
   useEffect(() => {
     let request: AbortController | undefined;
@@ -65,6 +68,13 @@ export function StorefrontCatalogProvider({ children }: { children: ReactNode })
       const controller = new AbortController();
       request = controller;
       const options = { cache: 'no-store' as const, signal: controller.signal };
+      void fetch('/api/product-reviews?scope=summary', options)
+        .then(async (response) => {
+          if (!response.ok) return;
+          const result = await response.json();
+          if (!controller.signal.aborted && result.success) setRatings(result.summaries);
+        })
+        .catch(() => {});
       try {
         const [listingResponse, categoryResponse] = await Promise.all([
           fetch('/api/retail-listings?scope=public', options),
@@ -91,8 +101,14 @@ export function StorefrontCatalogProvider({ children }: { children: ReactNode })
     };
   }, []);
 
+  const products = useMemo(() => catalog.products.map((product) => ({
+    ...product,
+    rating: ratings[product.id]?.ratingAverage ?? 0,
+    reviewCount: ratings[product.id]?.count ?? 0,
+  })), [catalog.products, ratings]);
+
   return (
-    <StorefrontCatalogContext.Provider value={{ ...catalog, isLoading, error }}>
+    <StorefrontCatalogContext.Provider value={{ ...catalog, products, isLoading, error }}>
       {children}
     </StorefrontCatalogContext.Provider>
   );

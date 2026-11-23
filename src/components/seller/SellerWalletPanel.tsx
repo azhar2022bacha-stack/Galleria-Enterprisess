@@ -22,7 +22,7 @@ import {
   WalletTransaction,
   ResaleSettlement,
 } from '@/lib/sellerOrders';
-import { sendSellerNotification } from '@/lib/sellerNotifications';
+import { fetchSellerNotifications, sendSellerNotification } from '@/lib/sellerNotifications';
 import { SELLER_CRYPTO_DEPOSIT_NETWORKS, type CryptoReceivingAddressMap } from '@/lib/cryptoReceivingAddresses';
 
 interface SellerWalletPanelProps {
@@ -76,6 +76,70 @@ const formatDate = (iso: string) =>
     hour: 'numeric',
     minute: '2-digit',
   });
+
+type WithdrawalOutcome = { id: string; date: string; amount: string; rejected: boolean; reason?: string };
+
+function WithdrawalReasons({ transactions }: { transactions: WalletTransaction[] }) {
+  const [refunds, setRefunds] = useState<WithdrawalOutcome[]>([]);
+  const [payments, setPayments] = useState<WithdrawalOutcome[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let loading = false;
+    async function refresh() {
+      if (loading || document.hidden) return;
+      loading = true;
+      const results = await Promise.allSettled([
+        fetch('/api/seller/wallet-adjustments', { cache: 'no-store' }).then(async response => {
+          if (!response.ok) throw Error();
+          const { adjustments } = await response.json();
+          const rows: WithdrawalOutcome[] = [];
+          for (const row of adjustments) {
+            if (row.eventType !== 'withdrawal-refund') continue;
+            const prefix = 'withdrawal-refund:' + row.sellerEmail + ':';
+            const id = row.dedupeKey?.startsWith(prefix) ? row.dedupeKey.slice(prefix.length) : row.id;
+            rows.push({ id, date: row.createdAt, amount: money(row.amount), rejected: true, reason: row.reason });
+          }
+          if (active) setRefunds(rows);
+        }),
+        fetchSellerNotifications('').then(notes => {
+          const rows: WithdrawalOutcome[] = [];
+          for (const note of notes) {
+            const prefix = 'seller-withdrawal-paid:' + note.sellerEmail + ':';
+            if (!note.dedupeKey?.startsWith(prefix)) continue;
+            rows.push({ id: note.dedupeKey.slice(prefix.length), date: note.createdAt,
+              amount: note.message.find(part => part.emphasis === 'blue')?.text || '', rejected: false });
+          }
+          if (active) setPayments(rows);
+        }),
+      ]);
+      if (active) setLoadError(results.some(result => result.status === 'rejected'));
+      loading = false;
+    }
+    void refresh();
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, []);
+
+  const outcomes = new Map<string, WithdrawalOutcome>();
+  for (const tx of transactions) {
+    if (tx.type !== 'withdrawal' || tx.status === 'pending' || !(tx.address || tx.network || /^withdrawal to /i.test(tx.description))) continue;
+    outcomes.set(tx.id, { id: tx.id, date: tx.createdAt, amount: money(tx.amount), rejected: tx.status === 'rejected', reason: tx.reviewReason });
+  }
+  for (const row of [...payments, ...refunds]) outcomes.set(row.id, row);
+  return <section aria-labelledby="withdrawal-reason-heading" className="rounded-xl border border-gray-200 bg-white p-4">
+    <h3 id="withdrawal-reason-heading" className="text-sm font-bold text-gray-900">Reason</h3>
+    {loadError && <p role="status" className="mt-2 text-xs text-amber-700">Some withdrawal updates could not be loaded.</p>}
+    {outcomes.size === 0 && !loadError && <p className="mt-2 text-xs text-gray-500">No reviewed withdrawals to show.</p>}
+    <ul className="divide-y divide-gray-100">{Array.from(outcomes.values()).sort((a,b)=>Date.parse(b.date)-Date.parse(a.date)).map(row =>
+      <li key={row.id} className="py-3 text-sm">
+        <p className={row.rejected ? 'font-semibold text-rose-700' : 'font-semibold text-emerald-700'}>{row.rejected ? 'Withdrawal rejected' : 'Withdrawal successful'}</p>
+        <p className="mt-1 text-xs text-gray-600">{formatDate(row.date)} · {row.amount}</p>
+        {row.rejected && <p className="mt-1 whitespace-pre-wrap break-words">{row.reason || 'No reason recorded.'}</p>}
+      </li>)}</ul>
+  </section>;
+}
 
 export function SellerWalletPanel({
   notify,
@@ -582,6 +646,8 @@ export function SellerWalletPanel({
           </div>
         )}
       </div>
+
+      <WithdrawalReasons transactions={transactions} />
 
       {/* Fund statement */}
       <div className="pt-2">

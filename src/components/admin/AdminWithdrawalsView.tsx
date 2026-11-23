@@ -274,7 +274,6 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const } : i))
     );
-    setActiveTab('rejected');
     notify?.(`Withdrawal of ${formatCurrency(target?.amount || 0)} rejected and refunded to merchant wallet.`);
   };
 

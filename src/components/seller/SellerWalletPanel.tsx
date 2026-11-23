@@ -1,5 +1,6 @@
 'use client';
 
+import { NONCRYPTO_TOP_UP_METHODS } from '@/lib/depositMethods';
 import React, { useEffect, useState } from 'react';
 import {
   CreditCard,
@@ -33,7 +34,7 @@ interface SellerWalletPanelProps {
 }
 
 const CRYPTO_TOP_UP_METHODS = SELLER_CRYPTO_DEPOSIT_NETWORKS.map((network) => network.name);
-const NONCRYPTO_TOP_UP_METHODS = ['UPI', 'Paytm', 'Debit Card', 'Credit Card', 'Visa Card', 'Mastercard', 'PayPal', 'Square', 'QuickBooks', 'Apple Pay', 'Zelle', 'Venmo'];
+
 const CRYPTO_WITHDRAW_METHODS = ['USDT (TRC20)', 'USDT (ERC20)', 'USDT (BEP20)', 'USDC (Arbitrum One)', 'BTC (Bitcoin)'];
 const DIGITAL_WALLET_WITHDRAW_METHODS = NONCRYPTO_TOP_UP_METHODS;
 
@@ -110,6 +111,7 @@ export function SellerWalletPanel({
   const isCryptoWithdrawal = CRYPTO_WITHDRAW_METHODS.includes(withdrawMethod);
   const isDigitalWalletWithdrawal = DIGITAL_WALLET_WITHDRAW_METHODS.includes(withdrawMethod);
   const selectedCryptoNetwork = SELLER_CRYPTO_DEPOSIT_NETWORKS.find((network) => network.name === topUpNetwork);
+  const manualDeposit = NONCRYPTO_TOP_UP_METHODS.includes(topUpNetwork);
   const activeDepositAddress = selectedCryptoNetwork ? cryptoAddresses[selectedCryptoNetwork.id] || '' : '';
 
   // Live sync with localStorage
@@ -161,12 +163,6 @@ export function SellerWalletPanel({
       return;
     }
     if (!topUpNetwork) { notify('Please select a payment method.'); return; }
-    if (NONCRYPTO_TOP_UP_METHODS.includes(topUpNetwork)) {
-      sessionStorage.setItem('seller_support_deposit_draft', 'I would like to make a deposit through ' + topUpNetwork + '. Please send me your account number and payment details.');
-      if (onOpenSupport) onOpenSupport();
-      else window.location.assign('/seller/dashboard?tab=support');
-      return;
-    }
     setDepositReceipt(null);
     setDepositModalOpen(true);
   };
@@ -181,7 +177,7 @@ export function SellerWalletPanel({
   };
 
   const handleSubmitDeposit = async () => {
-    if (submissionInFlight.current || receiptLoading || !depositReceipt || !activeDepositAddress) return;
+    if (submissionInFlight.current || receiptLoading || !depositReceipt || (!manualDeposit && !activeDepositAddress)) return;
     const amount = Number(topUpAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       notify('Please enter a valid deposit amount.');
@@ -715,7 +711,10 @@ export function SellerWalletPanel({
               </p>
             </div>
 
-            : <p className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800">{depositAddressError ? `Could not load the receiving address: ${depositAddressError}` : `Payment setup for ${topUpNetwork} is not configured yet. Contact Admin before sending crypto.`}</p>}
+            : manualDeposit ? <div className="mt-4 rounded-xl bg-gray-50 p-3 text-xs">Upload your payment receipt for admin review. If you need payment instructions, <button type="button" className="underline" onClick={() => {
+                sessionStorage.setItem('seller_support_deposit_draft', 'Please send payment instructions for ' + topUpNetwork + '.');
+                if (onOpenSupport) onOpenSupport(); else window.location.assign('/seller/dashboard?tab=support');
+              }}>contact Support</button>.</div> : <p className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800">{depositAddressError ? `Could not load the receiving address: ${depositAddressError}` : `Payment setup for ${topUpNetwork} is not configured yet. Contact Admin before sending crypto.`}</p>}
 
             <div className="mt-4 rounded-xl border border-gray-200 p-2">
               <label htmlFor="crypto-deposit-receipt" className="block text-xs font-bold text-gray-800 mb-2">Upload receipt <span className="text-red-500">*</span></label>
@@ -733,7 +732,7 @@ export function SellerWalletPanel({
                 type="button"
                 onClick={handleSubmitDeposit}
                 aria-busy={submittingDeposit}
-                disabled={submittingDeposit || !activeDepositAddress || !depositReceipt || receiptLoading}
+                disabled={submittingDeposit || (!manualDeposit && !activeDepositAddress) || !depositReceipt || receiptLoading}
                 className="flex-1 disabled:opacity-40 disabled:cursor-not-allowed py-2 bg-[#0f172a] hover:bg-black text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
                 {submittingDeposit ? <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}

@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ] # Change to 'master' if you use master
 
+concurrency:
+  group: production-vps
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,6 +22,8 @@ jobs:
           script: |
             set -e
             cd /var/www/nextjs-ap
+            exec 9>.git/galleria-deploy.lock
+            flock -w 300 9
             GIT_TERMINAL_PROMPT=0 git fetch origin main
             git merge --no-edit FETCH_HEAD
             git merge-base --is-ancestor "${{ github.sha }}" HEAD

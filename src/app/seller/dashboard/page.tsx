@@ -1611,8 +1611,8 @@ export default function SellerDashboardPage() {
                       <ShieldCheck className="w-3.5 h-3.5" />
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <span className="text-3xl font-extrabold text-gray-900 block">{formatUsd(grantedFunds)}</span>
+                  <div className="mt-2 min-w-0 [container-type:inline-size]">
+                    <span className="block break-words text-[clamp(0.75rem,10cqi,1.5rem)] font-bold tracking-tight tabular-nums text-gray-900">{formatUsd(grantedFunds)}</span>
                     <span className="text-xs text-gray-500 mt-1 block">{currentTier.name} · Platform credit</span>
                   </div>
                 </div>
@@ -1837,6 +1837,8 @@ export default function SellerDashboardPage() {
 
           {/* ======================= VIEW 6: WALLET & EARNINGS ======================= */}
           {activeNav === 'wallet' && (
+              selectedCount={products.length}
+              onAddAll={(items) => addDemoProductsToShop(items, true)}
             <SellerWalletPanel
               onOpenSupport={() => setActiveNav('support')}
               notify={notify}

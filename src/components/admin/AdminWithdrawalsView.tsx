@@ -1,6 +1,5 @@
 'use client';
 
-import { subscribeToAdminPaymentUpdates } from '@/lib/adminPaymentUpdates';
 import { RejectionReasonDialog } from './RejectionReasonDialog';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RefreshCw, Search, CheckCircle2, XCircle } from 'lucide-react';
@@ -28,6 +27,16 @@ const TRANSACTIONS_KEY = 'galleria_seller_transactions';
 async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
   if (typeof window === 'undefined') return [];
 
+  let owners: any[] = [];
+  try {
+    const response = await fetch('/api/admin/owners', { cache: 'no-store' });
+    if (response.ok) {
+      const data = await response.json();
+      owners = Array.isArray(data?.owners) ? data.owners : [];
+    }
+  } catch {}
+  const ownersByEmail = new Map(owners.map((owner) => [String(owner.email || '').trim().toLowerCase(), owner]));
+
   let activeSellerEmail = '';
   try {
     activeSellerEmail = String(JSON.parse(window.localStorage.getItem('galleria_active_seller') || '{}').email || '')
@@ -44,16 +53,15 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
     const details = row.withdrawal;
     const email = row.sellerEmail;
     const id = email + ':' + row.id;
-
+    const owner = ownersByEmail.get(email);
     const date = new Date(row.createdAt);
     seen.add(id);
     records.push({id, serverId:row.id, transactionId:row.id, internalId:row.id, storageKey:'',
-      sellerName:email, handle:email, email,
+      sellerName:owner?.shopName || owner?.name || email, handle:owner?.handle || email, email,
       amount:Math.abs(row.amount), status:details.status === 'completed' ? 'paid_out' : details.status,
       payoutDetails:details.method + ': ' + details.address, note:details.reviewReason || row.reason,
       createdDate:date.toLocaleDateString('en-US'),createdTime:date.toLocaleTimeString('en-US')});
   }
-  try {
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const storageKey = window.localStorage.key(index);
     if (storageKey !== TRANSACTIONS_KEY && !storageKey?.startsWith(`${TRANSACTIONS_KEY}:`)) continue;
@@ -87,7 +95,7 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
       if (seen.has(uniqueId)) return;
       seen.add(uniqueId);
 
-
+      const owner = ownersByEmail.get(email);
       const createdAt = new Date(transaction.createdAt || '');
       const validDate = Number.isFinite(createdAt.getTime());
       const payoutMethod = String(transaction.network || 'Payout');
@@ -96,8 +104,8 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
         id: uniqueId,
         storageKey,
         transactionId,
-        sellerName: String(email || 'Seller'),
-        handle: String((email ? `@${email.split('@')[0]}` : '')),
+        sellerName: String(owner?.shopName || owner?.name || email || 'Seller'),
+        handle: String(owner?.handle || (email ? `@${email.split('@')[0]}` : '')),
         email,
         internalId: transactionId,
         amount: Number(transaction.amount) || 0,
@@ -109,8 +117,6 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
       });
     });
   }
-
-  } catch { /* Server records remain available if legacy browser storage is inaccessible. */ }
 
   return records.sort((left, right) => {
     const leftTime = Date.parse(`${left.createdDate} ${left.createdTime}`) || 0;
@@ -147,7 +153,7 @@ type TabType = 'pending' | 'paid_out' | 'rejected' | 'all';
 
 export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
   const [items, setItems] = useState<WithdrawalRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<TabType>('pending');
+  const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadError,setLoadError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -178,16 +184,21 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     }
   };
   useEffect(() => {
-    const unsubscribe = subscribeToAdminPaymentUpdates('withdrawals', force => { void refreshWithdrawals(force); });
-    const refresh = () => { void refreshWithdrawals(); };
+    const refresh = () => { if (!document.hidden) void refreshWithdrawals(); };
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
+    window.addEventListener('focus', refresh);
     window.addEventListener('storage', refresh);
     window.addEventListener('galleria:seller-orders-changed', refresh);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
-      unsubscribe();
+      clearInterval(timer);
       refreshState.current.version++;
       refreshState.current.busy = false;
+      window.removeEventListener('focus', refresh);
       window.removeEventListener('storage', refresh);
       window.removeEventListener('galleria:seller-orders-changed', refresh);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
 

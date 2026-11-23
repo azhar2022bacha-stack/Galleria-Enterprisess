@@ -227,7 +227,6 @@ export interface CommissionRecord {
 }
 
 export interface WalletTransaction {
-  eventType?: 'withdrawal-refund';
   reviewReason?: string;
   id: string;
   type: 'deposit' | 'withdrawal' | 'order_payout' | 'order_payment' | 'rebate';
@@ -673,20 +672,13 @@ export async function syncApprovedRecharges(): Promise<void> {
     if (response.ok) {
       const data = await response.json();
       if (email !== resolveSellerEmail()) return;
+      const known = new Set(getTransactions().map(tx => tx.id));
       for (const row of data.recharges || []) {
-        if (row.status !== 'Rejected') continue;
         const id = 'recharge-' + row.id;
-        const transactions = getTransactions();
-        const existing = transactions.find(transaction => transaction.id === id);
-        if (!existing) {
+        if (row.status === 'Rejected' && !known.has(id)) {
           addWalletTransaction({id, type:'deposit', amount:Number(row.amount), status:'rejected',
             description:'Deposit ' + row.reference, reviewReason:row.reviewReason, createdAt:row.reviewedAt || row.submittedAt});
-        } else if (existing.status !== 'rejected' || existing.reviewReason !== row.reviewReason) {
-          window.localStorage.setItem(sellerStorageKey(TRANSACTIONS_KEY), JSON.stringify(
-            transactions.map(transaction => transaction.id === id
-              ? {...transaction, status:'rejected', reviewReason:row.reviewReason} : transaction)
-          ));
-          emitChange();
+          known.add(id);
         }
       }
       const approved = (data.recharges || []).filter((row: any) => row.status === 'Confirmed');
@@ -758,10 +750,7 @@ export async function syncApprovedRecharges(): Promise<void> {
         continue;
       }
       const id = `admin-wallet-adjustment-${row.id}`;
-      const transactions = getTransactions();
-      const existing = transactions.find(transaction => transaction.id === id);
-      const isWithdrawalRefund = row.eventType === 'withdrawal-refund';
-      if (!existing) {
+      if (!getTransactions().some((transaction) => transaction.id === id)) {
         addWalletTransaction({
           id,
           type: row.eventType === 'consign-order-payment'
@@ -770,19 +759,10 @@ export async function syncApprovedRecharges(): Promise<void> {
               ? 'order_payout'
               : Number(row.amount) < 0 ? 'withdrawal' : 'rebate',
           amount: Math.abs(Number(row.amount)),
-          ...(isWithdrawalRefund ? {eventType:'withdrawal-refund' as const, reviewReason:row.reason} : {}),
-          description: isWithdrawalRefund ? 'Funds returned for rejected withdrawal' : row.reason || 'Galleria Enterprises, Inc. wallet adjustment',
+          description: row.reason || 'Galleria Enterprises, Inc. wallet adjustment',
           status: 'completed',
           createdAt: row.createdAt,
         });
-      } else if (isWithdrawalRefund && existing.eventType !== 'withdrawal-refund') {
-        window.localStorage.setItem(sellerStorageKey(TRANSACTIONS_KEY), JSON.stringify(
-          transactions.map(transaction => transaction.id === id ? {
-            ...transaction, eventType:'withdrawal-refund', reviewReason:row.reason,
-            description:'Funds returned for rejected withdrawal',
-          } : transaction)
-        ));
-        emitChange();
       }
     }
   } catch {}
@@ -1213,7 +1193,7 @@ export async function requestWithdrawal(amount: number, method: string, address:
     const data = await response.json();
     if (!response.ok) return {success:false,error:data.error || 'Could not submit withdrawal.'};
     await syncApprovedRecharges();
-    return {success:true, reference:String(data.reference)};
+    return {success:true};
   } catch { return {success:false,error:'Could not confirm the withdrawal. Retry with the same details.'}; }
 }
 

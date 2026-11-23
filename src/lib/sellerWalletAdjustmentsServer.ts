@@ -162,15 +162,13 @@ export function submitWithdrawal(email: string, id: string, cents: number, metho
   if (prior) {
     if (prior.amount !== -cents / 100 || prior.withdrawal?.method !== method || prior.withdrawal?.address !== address)
       throw new WithdrawalError('This withdrawal reference is already in use.');
-    return prior.id;
+    return;
   }
   const available = confirmedDeposits(email) + sellerWalletAdjustmentCents(own);
   if (!Number.isSafeInteger(available) || available < cents) throw new WithdrawalError('Insufficient confirmed wallet balance.');
-  const reference = randomUUID();
-  writeAll([{id:reference, sellerEmail:email, accountType:'wallet', amount:-cents / 100,
+  writeAll([{id:randomUUID(), sellerEmail:email, accountType:'wallet', amount:-cents / 100,
     eventType:'withdrawal-request', dedupeKey:key, reason:'Withdrawal to ' + address, createdAt:new Date().toISOString(),
     withdrawal:{method,address,status:'pending'}}, ...rows]);
-  return reference;
 }
 
 export function reviewWithdrawal(id: string, status: 'completed' | 'rejected', reason: string) {

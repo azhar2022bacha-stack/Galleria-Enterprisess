@@ -20,19 +20,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: 'Admin sign-in is required.' }, { status: 401 });
   }
 
-  const [recharges, owners, products, chats, orders, wallet] = await Promise.all([
+  const [recharges, owners, products, chats, orders] = await Promise.all([
     readData('wallet_recharges.json'),
     getAdminTodoSellerStatuses().catch(() => null),
     readData('seller_products.json'),
     readData('support_chats.json'),
     readData('consign_orders.json'),
-    readData('seller_wallet_adjustments.json'),
   ]);
-  const counts = {
-    ...summarizeAdminTodoSources(recharges, owners, products, chats),
-    ...(Array.isArray(wallet) ? { withdrawals: wallet.filter(row =>
-      row?.eventType === 'withdrawal-request' && row.withdrawal?.status === 'pending').length } : {}),
-  };
+  const counts = summarizeAdminTodoSources(recharges, owners, products, chats);
   const orderSummaries = Array.isArray(orders) ? orders.filter(Boolean).map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,

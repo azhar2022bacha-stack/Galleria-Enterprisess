@@ -1,7 +1,7 @@
 'use client';
 
 import { RejectionReasonDialog } from './RejectionReasonDialog';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RefreshCw, Search, CheckCircle2, XCircle } from 'lucide-react';
 import { sendSellerNotification } from '@/lib/sellerNotifications';
 
@@ -152,25 +152,46 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [processingWithdrawalId, setProcessingWithdrawalId] = useState<string | null>(null);
 
+  const refreshState = useRef({ version: 0, busy: false });
+  const refreshWithdrawals = async (force = false) => {
+    const state = refreshState.current;
+    if (state.busy && !force) return;
+    const version = ++state.version;
+    state.busy = true;
+    setIsRefreshing(true);
+    try {
+      const records = await loadWithdrawalRecords();
+      if (version !== state.version) return;
+      setItems(previous => {
+        const ids = new Set(records.map(item => item.id));
+        return [...records, ...previous.filter(item => !ids.has(item.id))];
+      });
+      setLoadError(false);
+    } catch {
+      if (version === state.version) setLoadError(true);
+    } finally {
+      if (version === state.version) {
+        state.busy = false;
+        setIsRefreshing(false);
+      }
+    }
+  };
   useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const records = await loadWithdrawalRecords();
-        if (!cancelled) { setItems(records); setLoadError(false); }
-      } catch { if (!cancelled) setLoadError(true); }
-    };
-    void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 15_000);
+    const refresh = () => { if (!document.hidden) void refreshWithdrawals(); };
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
     window.addEventListener('focus', refresh);
     window.addEventListener('storage', refresh);
     window.addEventListener('galleria:seller-orders-changed', refresh);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
+      clearInterval(timer);
+      refreshState.current.version++;
+      refreshState.current.busy = false;
       window.removeEventListener('focus', refresh);
       window.removeEventListener('storage', refresh);
       window.removeEventListener('galleria:seller-orders-changed', refresh);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
 
@@ -204,12 +225,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     }).format(val);
   };
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    void loadWithdrawalRecords().then(records => {setItems(records);setLoadError(false);notify?.('Withdrawals refreshed.');}).catch(()=>setLoadError(true)).finally(() => {
-      setIsRefreshing(false);
-    });
-  };
+  const handleRefresh = () => { void refreshWithdrawals(true); };
 
   const handleMarkPaidOut = async (id: string) => {
     const target = items.find((i) => i.id === id);
@@ -220,10 +236,11 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
       catch (err) { notify?.(err instanceof Error ? err.message : 'Could not mark withdrawal as paid.'); return; }
       finally { setProcessingWithdrawalId(null); }
     } else saveWithdrawalStatus(target, 'completed');
+    refreshState.current.version++;
+    void refreshWithdrawals(true);
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'paid_out' as const } : i))
     );
-    setActiveTab('paid_out');
     notify?.(`Withdrawal of ${formatCurrency(target?.amount || 0)} marked as paid out.`);
     if (target) {
       void sendSellerNotification({
@@ -271,6 +288,8 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
       setProcessingWithdrawalId(null);
     }
     if (!target.serverId) saveWithdrawalStatus(target, 'rejected', reason);
+    refreshState.current.version++;
+    void refreshWithdrawals(true);
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const } : i))
     );

@@ -2,7 +2,7 @@
 
 import { RejectionReasonDialog } from './RejectionReasonDialog';
 import { createPortal } from 'react-dom';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, X, Check, AlertCircle, ExternalLink, ArrowUpDown } from 'lucide-react';
 
 export type RechargeStatus = 'Pending' | 'Confirmed' | 'Rejected' | 'All';
@@ -81,18 +81,59 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
 
   useEffect(() => setActiveStatus(initialStatus), [initialStatus]);
 
-  const handleRefresh = async () => {
+  const refreshState = useRef({ version: 0, busy: false, etag: '' });
+  const handleRefresh = async (force = false) => {
+    const state = refreshState.current;
+    if (state.busy && !force) return;
+    const version = ++state.version;
+    state.busy = true;
     setIsRefreshing(true);
-    try {const res=await fetch('/api/recharges',{cache:'no-store'});if(!res.ok)throw new Error('Unable to load recharges.');const data=await res.json();setRecharges(data.recharges);}catch(e:any){notify?.(e.message);}finally{setIsRefreshing(false);}
+    try {
+      const headers: Record<string, string> = {};
+      if (state.etag) headers['If-None-Match'] = state.etag;
+      const response = await fetch('/api/recharges', {cache:'no-store', headers});
+      if (response.status === 304) return;
+      if (!response.ok) throw new Error('Unable to load recharges.');
+      const data = await response.json();
+      if (!Array.isArray(data.recharges)) throw new Error('Unable to load recharges.');
+      if (version !== state.version) return;
+      state.etag = response.headers.get('ETag') || '';
+      setRecharges(previous => {
+        const ids = new Set(data.recharges.map((item: WalletRechargeItem) => item.id));
+        return [...data.recharges, ...previous.filter(item => !ids.has(item.id))];
+      });
+    } catch (error) {
+      if (version === state.version) notify?.(error instanceof Error ? error.message : 'Unable to load recharges.');
+    } finally {
+      if (version === state.version) {
+        state.busy = false;
+        setIsRefreshing(false);
+      }
+    }
   };
-  useEffect(()=>{handleRefresh();const timer=setInterval(handleRefresh,15_000);window.addEventListener('focus',handleRefresh);return()=>{clearInterval(timer);window.removeEventListener('focus',handleRefresh);};},[]);
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden) void handleRefresh(); };
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(timer);
+      refreshState.current.version++;
+      refreshState.current.busy = false;
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
   const [rejectItem, setRejectItem] = useState<WalletRechargeItem | null>(null);
   const rejectRecharge = async (reason: string) => {
     if (!rejectItem) return;
     const response = await fetch('/api/recharges', {method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'review',id:rejectItem.id,status:'Rejected',reason})});
     if (!response.ok) throw Error('Unable to reject this recharge. Refresh and try again.');
-    await handleRefresh();
+    refreshState.current.version++;
+    setRecharges(previous => previous.map(item => item.id === rejectItem.id ? { ...item, status:'Rejected' } : item));
+    void handleRefresh(true);
     window.dispatchEvent(new Event('galleria:admin-todo-changed'));
     notify?.('Recharge rejected.');
   };
@@ -116,7 +157,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
   return (
     <div className="max-w-7xl mx-auto animate-fadeIn pb-12">
       {rejectItem && <RejectionReasonDialog kind="recharge" onCancel={()=>setRejectItem(null)} onReject={rejectRecharge} />}
-      {confirmRecharge && typeof document!=='undefined' && createPortal(<div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4"><section role="dialog" aria-modal="true" aria-labelledby="confirm-recharge-title" className="bg-white rounded-lg shadow-xl border border-gray-200 p-5 w-full max-w-sm"><h2 id="confirm-recharge-title" className="text-sm font-semibold text-gray-900">Confirm this recharge?</h2><p className="text-xs text-gray-500 mt-2 leading-relaxed">This confirms the customer's recharge. Verify the transfer and payment screenshot first. You may override the credited USD below. Leave blank to use the requested amount ({confirmRecharge.amount.toFixed(2)} USD).</p><label htmlFor="credited-usd" className="block text-xs text-gray-500 mt-5 mb-1">Credited USD (optional)</label><input id="credited-usd" autoFocus type="number" min="0.01" step="0.01" value={creditedUsd} onChange={e=>setCreditedUsd(e.target.value)} placeholder={confirmRecharge.amount.toFixed(2)} className="w-full rounded border border-gray-300 p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none"/>{confirmError&&<p role="alert" className="text-xs text-red-600 mt-2">{confirmError}</p>}<div className="flex justify-end gap-2 mt-5"><button disabled={confirmBusy} onClick={()=>setConfirmRecharge(null)} className="px-3 py-1.5 border rounded text-xs text-gray-600">Cancel</button><button disabled={confirmBusy} onClick={async()=>{const amount=creditedUsd.trim()===''?confirmRecharge.amount:Number(creditedUsd);if(!Number.isFinite(amount)||amount<=0){setConfirmError('Enter a valid amount greater than zero.');return;}setConfirmBusy(true);try{const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'review',id:confirmRecharge.id,status:'Confirmed',creditedAmount:amount,sellerEmail:confirmRecharge.handle,rechargeReference:confirmRecharge.reference,requestedAmount:confirmRecharge.amount})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to confirm recharge.');await handleRefresh();window.dispatchEvent(new Event('galleria:admin-todo-changed'));notify?.('Recharge confirmed.');setActiveStatus('All');setConfirmRecharge(null);}catch(e:any){setConfirmError(e.message);}finally{setConfirmBusy(false);}}} className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs disabled:opacity-50">{confirmBusy?'Confirming…':'Yes'}</button></div></section></div>,document.body)}
+      {confirmRecharge && typeof document!=='undefined' && createPortal(<div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4"><section role="dialog" aria-modal="true" aria-labelledby="confirm-recharge-title" className="bg-white rounded-lg shadow-xl border border-gray-200 p-5 w-full max-w-sm"><h2 id="confirm-recharge-title" className="text-sm font-semibold text-gray-900">Confirm this recharge?</h2><p className="text-xs text-gray-500 mt-2 leading-relaxed">This confirms the customer's recharge. Verify the transfer and payment screenshot first. You may override the credited USD below. Leave blank to use the requested amount ({confirmRecharge.amount.toFixed(2)} USD).</p><label htmlFor="credited-usd" className="block text-xs text-gray-500 mt-5 mb-1">Credited USD (optional)</label><input id="credited-usd" autoFocus type="number" min="0.01" step="0.01" value={creditedUsd} onChange={e=>setCreditedUsd(e.target.value)} placeholder={confirmRecharge.amount.toFixed(2)} className="w-full rounded border border-gray-300 p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none"/>{confirmError&&<p role="alert" className="text-xs text-red-600 mt-2">{confirmError}</p>}<div className="flex justify-end gap-2 mt-5"><button disabled={confirmBusy} onClick={()=>setConfirmRecharge(null)} className="px-3 py-1.5 border rounded text-xs text-gray-600">Cancel</button><button disabled={confirmBusy} onClick={async()=>{const amount=creditedUsd.trim()===''?confirmRecharge.amount:Number(creditedUsd);if(!Number.isFinite(amount)||amount<=0){setConfirmError('Enter a valid amount greater than zero.');return;}setConfirmBusy(true);try{const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'review',id:confirmRecharge.id,status:'Confirmed',creditedAmount:amount,sellerEmail:confirmRecharge.handle,rechargeReference:confirmRecharge.reference,requestedAmount:confirmRecharge.amount})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to confirm recharge.');refreshState.current.version++;setRecharges(previous=>previous.map(item=>item.id===confirmRecharge.id?{...item,status:'Confirmed',creditedAmount:amount}:item));void handleRefresh(true);window.dispatchEvent(new Event('galleria:admin-todo-changed'));notify?.('Recharge confirmed.');setConfirmRecharge(null);}catch(e:any){setConfirmError(e.message);}finally{setConfirmBusy(false);}}} className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs disabled:opacity-50">{confirmBusy?'Confirming…':'Yes'}</button></div></section></div>,document.body)}
       {receiptPreview && typeof document!=='undefined' && createPortal(<div role="dialog" aria-modal="true" aria-label="Payment receipt" className="fixed inset-0 z-[100] bg-black/80 flex flex-col p-4" onClick={()=>setReceiptPreview(null)}><div className="flex items-center justify-between text-white mb-3"><span className="text-sm truncate">{receiptPreview.name}</span><button type="button" autoFocus aria-label="Close receipt" onClick={()=>setReceiptPreview(null)} className="p-2" onKeyDown={e=>{if(e.key==='Escape')setReceiptPreview(null);}}><X size={24}/></button></div><div className="flex-1 min-h-0 flex items-center justify-center overflow-auto"><img src={receiptPreview.url} alt="Uploaded payment receipt" className="max-w-full max-h-full object-contain bg-white rounded" onClick={e=>e.stopPropagation()}/></div></div>,document.body)}
       {/* Outer Card Container matching screenshot */}
       <div className="bg-white rounded-2xl border border-gray-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
@@ -130,7 +171,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleRefresh}
+              onClick={() => void handleRefresh(true)}
               className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 active:bg-gray-100 transition-colors shadow-2xs"
             >
               {isRefreshing ? 'Refreshing...' : 'Refresh'}

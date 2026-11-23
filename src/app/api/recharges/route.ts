@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createSellerNotificationServer } from '@/lib/sellerNotificationsServer';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
@@ -46,7 +46,11 @@ export async function GET(req: Request) {
     if (!normalizedSessionEmail) return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
     if (normalizedSessionEmail !== email) return NextResponse.json({ error: 'You can only view your own wallet recharges.' }, { status: 403 });
   }
-  return NextResponse.json({ recharges: read().filter((row) => !email || row.handle === email) });
+  const data = { recharges: read().filter((row) => !email || row.handle === email) };
+  const etag = '"' + createHash('sha256').update(JSON.stringify(data)).digest('hex') + '"';
+  const headers = { 'Cache-Control': 'no-store, private', ETag: etag };
+  if (req.headers.get('if-none-match') === etag) return new NextResponse(null, {status:304, headers});
+  return NextResponse.json(data, { headers });
 }
 
 export async function POST(req: Request) {

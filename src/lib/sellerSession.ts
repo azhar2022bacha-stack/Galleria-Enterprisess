@@ -1,3 +1,4 @@
+import { recoveredCredentials } from './sellerRecoveryServer';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { NextResponse } from 'next/server';
 
@@ -7,6 +8,7 @@ export const SELLER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 interface SellerSessionPayload {
   email: string;
   exp: number;
+  version?: string;
 }
 
 function sessionSecret(): string {
@@ -28,6 +30,7 @@ export function createSellerSessionToken(email: string): string {
   }
   const payload: SellerSessionPayload = {
     email: normalizedEmail,
+    version: recoveredCredentials(normalizedEmail)?.version,
     exp: Math.floor(Date.now() / 1000) + SELLER_SESSION_MAX_AGE,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -45,7 +48,8 @@ export function getSellerEmailFromToken(token: string): string {
     const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as SellerSessionPayload;
     if (typeof payload.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) return '';
     if (!Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) return '';
-    return payload.email.trim().toLowerCase();
+    const account = payload.email.trim().toLowerCase();
+    return payload.version === recoveredCredentials(account)?.version ? account : "";
   } catch {
     return '';
   }

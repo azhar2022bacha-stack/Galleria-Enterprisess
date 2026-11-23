@@ -1,3 +1,4 @@
+import { recoveredAccount } from '@/lib/sellerRecoveryServer';
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { setSellerSessionCookie } from '@/lib/sellerSession';
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
 
     // Do not let a second registration replace an existing seller's credentials.
     // Check only after validating the invitation so this does not expose account status to arbitrary visitors.
-    if (await getSellerByEmailServer(email)) {
+    if (recoveredAccount(email) || await getSellerByEmailServer(email)) {
       return NextResponse.json(
         { success: false, error: 'A seller account with this email already exists. Please sign in instead.' },
         { status: 409 }

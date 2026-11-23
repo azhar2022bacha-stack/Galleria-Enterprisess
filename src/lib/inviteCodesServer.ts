@@ -723,9 +723,12 @@ export async function getLatestSellerServer(): Promise<{
 /**
  * Authenticate seller using email and password strictly matched to their specific account
  */
+import { recoveredAccount, recoveredCredentials, matchesRecoveredPassword, updateRecoveredPassword } from './sellerRecoveryServer';
+
 export async function authenticateSellerServer(
   emailStr: string,
-  passwordStr: string
+  passwordStr: string,
+  byAccount = false
 ): Promise<{
   success: boolean;
   error?: string;
@@ -747,7 +750,10 @@ export async function authenticateSellerServer(
   }
 
   // 1. Look up the specific account linked exclusively to this email
-  const seller = await getSellerByEmailServer(email);
+  const account = byAccount ? email : recoveredAccount(email) || email;
+  const credentials = recoveredCredentials(account);
+  if (!byAccount && credentials && credentials.email !== email) return { success: false, error: 'Invalid sign-in credentials.' };
+  const seller = await getSellerByEmailServer(account);
   if (!seller) {
     return {
       success: false,
@@ -757,7 +763,9 @@ export async function authenticateSellerServer(
 
   // 2. Strict password verification against THAT account's specific salt and hash
   let isPasswordValid = false;
-  if (seller.loginHash && seller.loginHash.includes('$')) {
+  if (credentials) {
+    isPasswordValid = await matchesRecoveredPassword(password, credentials.hash);
+  } else if (seller.loginHash && seller.loginHash.includes('$')) {
     isPasswordValid = await verifyCombinedPasswordHash(password, seller.loginHash);
   } else if (seller.salt) {
     isPasswordValid = await verifyPasswordWithSalt(password, seller.loginHash, seller.salt);
@@ -1101,6 +1109,8 @@ export async function updateSellerLoginPasswordServer(
   const normalizedEmail = (email || '').trim().toLowerCase();
   if (!normalizedEmail || !newPassword) return false;
 
+  if (await updateRecoveredPassword(normalizedEmail, newPassword)) return true;
+
   // The combined login hash carries its own salt. Keep the legacy account salt for the transaction password.
   const salt = randomBytes(16).toString('hex');
   const hash = await hashPasswordWithSalt(newPassword, salt);
@@ -1139,6 +1149,7 @@ export async function createAdminSellerServer(data: {
   status?: 'approved' | 'review' | 'suspended';
 }): Promise<FormattedAdminOwner> {
   const normalizedEmail = data.email.trim().toLowerCase();
+  if (recoveredAccount(normalizedEmail) || recoveredCredentials(normalizedEmail)) throw Error("This seller account already exists.");
   const now = new Date().toISOString();
   const status = data.status || 'approved';
   const packageTier = data.packageTier || 'Free Shop';

@@ -49,6 +49,7 @@ export type AdminTab =
   | 'confirm_order_by_seller'
   | 'store_exposure'
   | 'manual_payment'
+  | 'seller_recovery'
   | 'audit_log'
   | 'accounts'
   | 'consign'
@@ -203,6 +204,7 @@ export function AdminSidebar({
     { id: 'confirm_order_by_seller', label: 'Confirm Order by Seller', iconType: 'bag' },
     { id: 'store_exposure', label: 'Store Visitors & Exposure', iconType: 'bag' },
     { id: 'manual_payment', label: 'Manual Payment', iconType: 'dollar' },
+    { id: 'seller_recovery', label: 'Seller Account Recovery', iconType: 'shield' },
     { id: 'audit_log', label: 'Audit log', iconType: 'grid' },
     { id: 'accounts', label: 'Accounts', iconType: 'grid' },
     { id: 'consign', label: 'Consign', iconType: 'shield' },

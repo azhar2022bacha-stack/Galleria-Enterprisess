@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Choose a new password different from your current password.' }, { status: 400 });
     }
 
-    const auth = await authenticateSellerServer(email, currentPassword);
+    const auth = await authenticateSellerServer(email, currentPassword, true);
     if (!auth.success) {
       return NextResponse.json({ success: false, error: 'Your current password is incorrect.' }, { status: 400 });
     }

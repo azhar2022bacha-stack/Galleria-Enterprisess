@@ -15,6 +15,7 @@ import {
   HIDDEN_SELLER_STOREHOUSE_CATEGORY_SLUGS,
   getStorehouseSavingsRate,
   getStorehouseSearchTerms,
+  STOREHOUSE_MIX_BATCH_SIZE,
   type StorehouseMixFilters,
   type StorehouseMixPage,
 } from '@/lib/storehouseMix';
@@ -707,6 +708,45 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
     }
   };
 
+  const [addingAll, setAddingAll] = useState(false);
+  const bulkRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => bulkRequest.current?.abort(), []);
+
+  const handleAddAll = async () => {
+    if (bulkRequest.current || remainingSlots <= 0) return;
+    const request = new AbortController();
+    bulkRequest.current = request;
+    setAddingAll(true);
+    try {
+      const filters: StorehouseMixFilters = {
+        searchQuery: '', priceRange: 'all', status: 'all', sortBy: 'default', excludedIds: addedStorehouseIds,
+      };
+      const seen = new Set(addedStorehouseIds);
+      const items: DemoProduct[] = [];
+      let snapshot: string | undefined;
+      for (let pageNumber = 1; items.length < remainingSlots; pageNumber++) {
+        const result = await requestStorehouseMix(filters, pageNumber, STOREHOUSE_MIX_BATCH_SIZE, snapshot, request.signal);
+        if (request.signal.aborted) return;
+        if (result.page !== pageNumber) break;
+        snapshot = result.snapshotId;
+        for (const product of result.products) {
+          if (seen.has(product.id)) continue;
+          seen.add(product.id);
+          items.push(product);
+          if (items.length === remainingSlots) break;
+        }
+        if (pageNumber * STOREHOUSE_MIX_BATCH_SIZE >= result.totalCount) break;
+      }
+      if (items.length) onAddMultipleToShop?.(items);
+      else notify('No more eligible Storehouse products are available.');
+    } catch {
+      if (!request.signal.aborted) notify('Could not complete the bulk add. Please try again.');
+    } finally {
+      bulkRequest.current = null;
+      if (!request.signal.aborted) setAddingAll(false);
+    }
+  };
+
   const handleClearSelection = () => {
     setSelectedProductIds([]);
   };
@@ -833,6 +873,11 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
 
           {/* Action Toolbar Right: View Toggle, Hide Added, & Add All Button */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button type="button" onClick={handleAddAll} disabled={addingAll || remainingSlots === 0 || !onAddMultipleToShop}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#071324] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-default disabled:opacity-50">
+              <Plus aria-hidden="true" className="h-4 w-4 text-amber-300" />
+              {addingAll ? 'Adding products…' : 'Add all product at once'}
+            </button>
             {/* View Mode Toggle: Grid vs Table */}
             <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
               <button

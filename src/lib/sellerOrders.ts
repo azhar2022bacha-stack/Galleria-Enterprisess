@@ -736,6 +736,19 @@ export async function syncApprovedRecharges(): Promise<void> {
     }
     applySyncedWalletAdjustmentTotalCents(totalCents);
     for (const row of walletAdjustments) {
+      if (row.eventType === 'withdrawal-request' && row.withdrawal) {
+        const tx: WalletTransaction = {id:row.id,type:'withdrawal',amount:Math.abs(row.amount),description:row.reason,
+          status:row.withdrawal.status, network:row.withdrawal.method, address:row.withdrawal.address,
+          reviewReason:row.withdrawal.reviewReason, createdAt:row.createdAt};
+        const list = getTransactions();
+        const previous = list.find(item => item.id === row.id);
+        if (!previous) addWalletTransaction(tx);
+        else if (previous.status !== tx.status || previous.reviewReason !== tx.reviewReason) {
+          window.localStorage.setItem(sellerStorageKey(TRANSACTIONS_KEY), JSON.stringify(list.map(item=>item.id === tx.id ? tx : item)));
+          emitChange();
+        }
+        continue;
+      }
       const id = `admin-wallet-adjustment-${row.id}`;
       if (!getTransactions().some((transaction) => transaction.id === id)) {
         addWalletTransaction({
@@ -1173,29 +1186,15 @@ export function topUpWallet(amount: number, network: string): number {
   return newBalance;
 }
 
-export function requestWithdrawal(
-  amount: number,
-  method: string,
-  address: string
-): { success: boolean; error?: string } {
-  const current = getWallet();
-  if (amount <= 0) return { success: false, error: 'Please enter a valid amount to withdraw.' };
-  if (amount > current) return { success: false, error: 'Insufficient wallet balance.' };
-  if (!address.trim()) return { success: false, error: 'Please provide payout details / address.' };
-
-  const newBalance = Math.round((current - amount) * 100) / 100;
-  setWallet(newBalance);
-  addWalletTransaction({
-    id: `tx-wd-${Date.now()}`,
-    type: 'withdrawal',
-    amount,
-    description: `Withdrawal to ${address}`,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-    network: method,
-    address,
-  });
-  return { success: true };
+export async function requestWithdrawal(amount: number, method: string, address: string, id: string) {
+  try {
+    const response = await fetch('/api/seller/withdrawals', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id,cents:amountToCents(amount),method,address})});
+    const data = await response.json();
+    if (!response.ok) return {success:false,error:data.error || 'Could not submit withdrawal.'};
+    await syncApprovedRecharges();
+    return {success:true};
+  } catch { return {success:false,error:'Could not confirm the withdrawal. Retry with the same details.'}; }
 }
 
 export function getNextStatus(status: SellerOrderStatus): SellerOrderStatus | null {

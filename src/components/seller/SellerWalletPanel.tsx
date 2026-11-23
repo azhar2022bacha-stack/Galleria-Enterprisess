@@ -225,7 +225,9 @@ export function SellerWalletPanel({
     }
   };
 
-  const handleRequestWithdrawal = (e: React.FormEvent) => {
+  const withdrawalRef = React.useRef({busy:false, details:"", id:""});
+  const [submittingWithdrawal,setSubmittingWithdrawal] = useState(false);
+  const handleRequestWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(withdrawAmount);
     if (!amt || amt <= 0) {
@@ -237,24 +239,22 @@ export function SellerWalletPanel({
       return;
     }
 
-    if (isDigitalWalletWithdrawal) {
-      const supportDraft = `Hello Support Team, I would like to withdraw ${money(amt)} using ${withdrawMethod}. Please let me know what account information or verification details you need from me to process this withdrawal. Thank you.`;
-      sessionStorage.removeItem('seller_support_deposit_draft');
-      sessionStorage.setItem('seller_support_withdrawal_draft', supportDraft);
-      sessionStorage.setItem('seller_support_withdrawal_autosend', '1');
-      setWithdrawAmount('');
-      setWithdrawDetails('');
-      if (onOpenSupport) onOpenSupport();
-      else window.location.assign('/seller/dashboard?tab=support');
-      return;
-    }
-
     if (!withdrawDetails.trim()) {
-      notify('Please enter your wallet address.');
+      notify('Please enter your payout details.');
       return;
     }
 
-    const result = requestWithdrawal(amt, withdrawMethod, withdrawDetails);
+    const current = withdrawalRef.current;
+    if (current.busy) return;
+    const details = JSON.stringify([amt, withdrawMethod, withdrawDetails]);
+    if (current.details !== details) { current.details = details; current.id = crypto.randomUUID(); }
+    current.busy = true;
+    setSubmittingWithdrawal(true);
+    const result = await requestWithdrawal(amt, withdrawMethod, withdrawDetails, current.id);
+    current.busy = false;
+    setSubmittingWithdrawal(false);
+    if (result.success) current.details = '';
+
     if (!result.success) {
       notify(result.error || 'Failed to submit withdrawal.');
       return;
@@ -516,10 +516,10 @@ export function SellerWalletPanel({
             </div>
           </div>
 
-          {isCryptoWithdrawal ? (
+          {(isCryptoWithdrawal || isDigitalWalletWithdrawal) ? (
             <div className="mt-3">
               <label htmlFor="withdraw-wallet-address" className="text-xs font-semibold text-gray-700 block mb-1">
-                Wallet address <span className="text-red-500">*</span>
+                {isCryptoWithdrawal ? "Wallet address" : "Payout details"} <span className="text-red-500">*</span>
               </label>
               <input
                 id="withdraw-wallet-address"
@@ -535,7 +535,7 @@ export function SellerWalletPanel({
 
           <button
             type="submit"
-            disabled={isCryptoWithdrawal && !withdrawDetails.trim()}
+            disabled={submittingWithdrawal || !withdrawDetails.trim()}
             className="px-4 py-2 bg-[#0f172a] hover:bg-black text-white text-xs font-bold rounded-lg transition-colors mt-4 inline-block shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#0f172a]"
           >
             Request withdrawal

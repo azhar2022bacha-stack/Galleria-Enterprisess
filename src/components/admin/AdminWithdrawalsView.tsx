@@ -8,6 +8,7 @@ import { sendSellerNotification } from '@/lib/sellerNotifications';
 export interface WithdrawalRecord {
   id: string;
   storageKey: string;
+  serverId?: string;
   transactionId: string;
   sellerName: string;
   handle: string;
@@ -45,6 +46,22 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
 
   const records: WithdrawalRecord[] = [];
   const seen = new Set<string>();
+  const response = await fetch('/api/admin/withdrawals', {cache:'no-store'});
+  if (!response.ok) throw Error('Unable to load withdrawal requests.');
+  const {withdrawals} = await response.json();
+  for (const row of withdrawals) {
+    const details = row.withdrawal;
+    const email = row.sellerEmail;
+    const id = email + ':' + row.id;
+    const owner = ownersByEmail.get(email);
+    const date = new Date(row.createdAt);
+    seen.add(id);
+    records.push({id, serverId:row.id, transactionId:row.id, internalId:row.id, storageKey:'',
+      sellerName:owner?.shopName || owner?.name || email, handle:owner?.handle || email, email,
+      amount:Math.abs(row.amount), status:details.status === 'completed' ? 'paid_out' : details.status,
+      payoutDetails:details.method + ': ' + details.address, note:details.reviewReason || row.reason,
+      createdDate:date.toLocaleDateString('en-US'),createdTime:date.toLocaleTimeString('en-US')});
+  }
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const storageKey = window.localStorage.key(index);
     if (storageKey !== TRANSACTIONS_KEY && !storageKey?.startsWith(`${TRANSACTIONS_KEY}:`)) continue;
@@ -122,6 +139,12 @@ function saveWithdrawalStatus(item: WithdrawalRecord, status: 'completed' | 'rej
   } catch {}
 }
 
+async function reviewServerWithdrawal(id: string, status: 'completed' | 'rejected', reason = '') {
+  const response = await fetch('/api/admin/withdrawals', {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,status,reason})});
+  if (!response.ok) throw Error((await response.json()).error || 'Could not review withdrawal.');
+}
+
 interface AdminWithdrawalsViewProps {
   notify?: (msg: string) => void;
 }
@@ -132,14 +155,17 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
   const [items, setItems] = useState<WithdrawalRecord[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [loadError,setLoadError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [processingWithdrawalId, setProcessingWithdrawalId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
-      const records = await loadWithdrawalRecords();
-      if (!cancelled) setItems(records);
+      try {
+        const records = await loadWithdrawalRecords();
+        if (!cancelled) { setItems(records); setLoadError(false); }
+      } catch { if (!cancelled) setLoadError(true); }
     };
     void refresh();
     const intervalId = window.setInterval(() => void refresh(), 15_000);
@@ -185,16 +211,20 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    void loadWithdrawalRecords().then(setItems).finally(() => {
+    void loadWithdrawalRecords().then(records => {setItems(records);setLoadError(false);notify?.('Withdrawals refreshed.');}).catch(()=>setLoadError(true)).finally(() => {
       setIsRefreshing(false);
-      notify?.('Withdrawals refreshed.');
     });
   };
 
-  const handleMarkPaidOut = (id: string) => {
+  const handleMarkPaidOut = async (id: string) => {
     const target = items.find((i) => i.id === id);
     if (!target || target.status !== 'pending' || processingWithdrawalId === id) return;
-    saveWithdrawalStatus(target, 'completed');
+    if (target.serverId) {
+      setProcessingWithdrawalId(id);
+      try { await reviewServerWithdrawal(target.serverId,'completed'); }
+      catch (err) { notify?.(err instanceof Error ? err.message : 'Could not mark withdrawal as paid.'); return; }
+      finally { setProcessingWithdrawalId(null); }
+    } else saveWithdrawalStatus(target, 'completed');
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'paid_out' as const } : i))
     );
@@ -223,6 +253,8 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     if (!target || target.status !== 'pending' || processingWithdrawalId === id) return;
     setProcessingWithdrawalId(id);
     try {
+      if (target.serverId) await reviewServerWithdrawal(target.serverId,'rejected',reason);
+      else {
       const response = await fetch('/api/admin/wallet-adjustments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -237,12 +269,13 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to return the withdrawal amount.');
+      }
     } catch (error: any) {
       throw error;
     } finally {
       setProcessingWithdrawalId(null);
     }
-    saveWithdrawalStatus(target, 'rejected', reason);
+    if (!target.serverId) saveWithdrawalStatus(target, 'rejected', reason);
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const } : i))
     );
@@ -282,6 +315,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-6 sm:p-8 max-w-7xl mx-auto space-y-5 animate-fadeIn pb-12">
+      {loadError && <p role="alert">Could not refresh withdrawals. Please try again.</p>}
       {rejectId && <RejectionReasonDialog kind="withdrawal" onCancel={()=>setRejectId(null)} onReject={reason=>handleRejectAndRefund(rejectId,reason)} />}
       {/* Top Header Bar matching screenshot */}
       <div className="flex items-center justify-between">

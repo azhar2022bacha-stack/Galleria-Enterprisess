@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 
 export type SellerWalletAdjustmentEvent =
   | 'commission-payout'
+  | 'withdrawal-request'
   | 'withdrawal-refund'
   | 'package-purchase'
   | 'manual-adjustment'
@@ -20,6 +21,7 @@ export interface SellerWalletAdjustment {
   createdAt: string;
   dedupeKey?: string;
   eventType?: SellerWalletAdjustmentEvent;
+  withdrawal?: { method: string; address: string; status: 'pending' | 'completed' | 'rejected'; reviewReason?: string };
 }
 
 const FILE = path.join(process.cwd(), 'src', 'data', 'seller_wallet_adjustments.json');
@@ -126,10 +128,7 @@ export function purchaseSellerPackage(email: string, id: PackageTierId, walletCe
   if (!tier || !tier.price || tier.price < current.tier.price) throw Error('Select a higher package.');
   const walletTotalCents = sellerWalletAdjustmentCents(own.filter(row => row.accountType === 'wallet'));
   if (current.tier.id === id) return { tierId: id, spend: current.spend, walletTotalCents };
-  const depositsFile = path.join(path.dirname(FILE), 'wallet_recharges.json');
-  const deposits = fs.existsSync(depositsFile) ? JSON.parse(fs.readFileSync(depositsFile, 'utf8')) : [];
-  const depositCents = deposits.filter((row: { handle: string; status: string }) => row.handle === email && row.status === 'Confirmed')
-    .reduce((sum: number, row: { creditedAmount?: number; amount: number }) => sum + Math.round(Number(row.creditedAmount ?? row.amount) * 100), 0);
+  const depositCents = confirmedDeposits(email);
   const available = Math.min(walletCents, depositCents + walletTotalCents);
   if (!Number.isSafeInteger(available) || available < tier.price * 100) throw Error('Insufficient confirmed wallet funds.');
   const payment = { sellerEmail: email, reason: tier.name + ' package purchase', createdAt: new Date().toISOString(), eventType: 'package-purchase' as const };
@@ -139,4 +138,49 @@ export function purchaseSellerPackage(email: string, id: PackageTierId, walletCe
     ...rows,
   ]);
   return { tierId: id, spend: current.spend + tier.price, walletTotalCents: walletTotalCents - tier.price * 100 };
+}
+
+function confirmedDeposits(email: string): number {
+  const depositsFile = path.join(path.dirname(FILE), 'wallet_recharges.json');
+  const deposits = fs.existsSync(depositsFile) ? JSON.parse(fs.readFileSync(depositsFile, 'utf8')) : [];
+  const depositCents = deposits.filter((row: { handle: string; status: string }) => row.handle === email && row.status === 'Confirmed')
+    .reduce((sum: number, row: { creditedAmount?: number; amount: number }) => sum + Math.round(Number(row.creditedAmount ?? row.amount) * 100), 0);
+  return depositCents;
+}
+
+export class WithdrawalError extends Error {}
+
+export function submitWithdrawal(email: string, id: string, cents: number, method: string, address: string) {
+  if (!Number.isSafeInteger(cents) || cents < 1 || !method || method.length > 80 || !address || address.length > 500 ||
+      !/^[a-f0-9-]{36}$/i.test(id)) throw new WithdrawalError('Invalid withdrawal details.');
+  const rows = readAll();
+  const key = 'withdrawal-request:' + id;
+  const own = rows.filter(row => row.sellerEmail === email && row.accountType === 'wallet');
+  const prior = own.find(row => row.dedupeKey === key);
+  if (prior) {
+    if (prior.amount !== -cents / 100 || prior.withdrawal?.method !== method || prior.withdrawal?.address !== address)
+      throw new WithdrawalError('This withdrawal reference is already in use.');
+    return;
+  }
+  const available = confirmedDeposits(email) + sellerWalletAdjustmentCents(own);
+  if (!Number.isSafeInteger(available) || available < cents) throw new WithdrawalError('Insufficient confirmed wallet balance.');
+  writeAll([{id:randomUUID(), sellerEmail:email, accountType:'wallet', amount:-cents / 100,
+    eventType:'withdrawal-request', dedupeKey:key, reason:'Withdrawal to ' + address, createdAt:new Date().toISOString(),
+    withdrawal:{method,address,status:'pending'}}, ...rows]);
+}
+
+export function reviewWithdrawal(id: string, status: 'completed' | 'rejected', reason: string) {
+  const rows = readAll();
+  const row = rows.find(item => item.id === id && item.eventType === 'withdrawal-request');
+  if (!row?.withdrawal) throw new WithdrawalError('Withdrawal not found.');
+  if (row.withdrawal.status === status) return;
+  if (row.withdrawal.status !== 'pending') throw new WithdrawalError('This withdrawal has already been reviewed.');
+  if (status === 'rejected') {
+    if (!reason || reason.length > 500) throw new WithdrawalError('Enter a rejection reason (up to 500 characters).');
+    row.withdrawal.reviewReason = reason;
+    rows.unshift({id:randomUUID(), sellerEmail:row.sellerEmail, accountType:'wallet', amount:-row.amount,
+      reason, createdAt:new Date().toISOString(), eventType:'withdrawal-refund', dedupeKey:'withdrawal-refund:' + row.sellerEmail + ':' + row.id});
+  }
+  row.withdrawal.status = status;
+  writeAll(rows);
 }

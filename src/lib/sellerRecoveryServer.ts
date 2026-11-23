@@ -8,7 +8,7 @@ const directory = path.join(process.cwd(), 'src/data');
 const file = path.join(directory, 'seller_recovery.json');
 const lifetime = 30 * 60 * 1000;
 type Credentials = { email: string; hash: string; version: string };
-type Request = { account: string; digest: string; expires: number; email?: string; hash?: string; verification?: string };
+type Request = { account: string; digest: string; expires: number; destination?: string };
 type State = { accounts: Record<string, Credentials>; requests: Request[] };
 export class RecoveryError extends Error {}
 function read(): State {
@@ -55,50 +55,33 @@ export async function updateRecoveredPassword(account: string, password: string)
   });
   return true;
 }
-export function issueRecovery(account: string) {
+export function issueRecovery(account: string, destination: string) {
   const raw = token();
   change(state => {
     state.requests = state.requests.filter(row => row.account !== account);
-    state.requests.push({ account, digest: digest(raw), expires: Date.now() + lifetime });
+    state.requests.push({ account, digest: digest(raw), destination, expires: Date.now() + lifetime });
   });
   return raw;
 }
-export function pendingEmail(account: string) {
-  return read().requests.find(row => row.account === account && row.expires > Date.now())?.email;
-}
-function requestFor(state: State, raw: string, verify = false) {
+function requestFor(state: State, raw: string) {
   const key = digest(raw);
-  const row = state.requests.find(item => item.expires > Date.now() && (verify ? item.verification === key : !item.email && item.digest === key));
-  if (!row) throw new RecoveryError('This link has expired or has already been used. Contact the admin for a new link.');
+  const row = state.requests.find(item => item.destination && item.digest === key && item.expires > Date.now());
+  if (!row) throw new RecoveryError('Invalid, expired, or used link. Ask the admin to generate a new recovery link.');
   return row;
 }
-export function recoveryOwner(raw: string, verify = false) { return requestFor(read(), raw, verify).account; }
-export async function requestNewCredentials(raw: string, email: string, password: string) {
-  recoveryOwner(raw);
+export function recoveryOwner(raw: string, email: string) {
+  const row = requestFor(read(), raw);
+  if (row.destination !== email) throw new RecoveryError('Enter the email address to which the admin sent this link.');
+  return row.account;
+}
+export async function saveRecovery(raw: string, email: string, password: string) {
   const hash = await passwordHash(password);
   change(state => {
     const row = requestFor(state, raw);
-    row.email = email;
-    row.hash = hash;
-  });
-}
-export function issueVerification(account: string) {
-  const raw = token();
-  const email = change(state => {
-    const row = state.requests.find(item => item.account === account && item.email);
-    if (!row?.email) throw new RecoveryError('No new email is awaiting verification.');
-    row.verification = digest(raw);
-    return row.email;
-  });
-  return { email, token: raw };
-}
-export function finishRecovery(raw: string) {
-  change(state => {
-    const row = requestFor(state, raw, true);
-    if (!row.email || !row.hash) throw new RecoveryError('Request new credentials first.');
-    if (Object.entries(state.accounts).some(([account, value]) => account !== row.account && value.email === row.email))
+    if (row.destination !== email) throw new RecoveryError('The recovery email does not match.');
+    if (Object.entries(state.accounts).some(([account, value]) => account !== row.account && value.email === email))
       throw new RecoveryError('That sign-in email is already in use.');
-    state.accounts[row.account] = { email: row.email, hash: row.hash, version: randomUUID() };
+    state.accounts[row.account] = { email, hash, version: randomUUID() };
     state.requests = state.requests.filter(item => item.account !== row.account);
   });
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getAllSellersServer, getSellerByEmailServer } from '@/lib/inviteCodesServer';
-import { issueRecovery, issueVerification, pendingEmail, RecoveryError } from '@/lib/sellerRecoveryServer';
+import { issueRecovery, recoveredAccount, RecoveryError } from '@/lib/sellerRecoveryServer';
 const headers = { 'Cache-Control': 'no-store' };
 export async function GET(req: Request) {
   if (!await getRequestAdmin(req)) return NextResponse.json({}, { status: 401 });
@@ -14,9 +14,12 @@ export async function POST(req: Request) {
   const account = String(body?.account || '').trim().toLowerCase();
   if (!account || !await getSellerByEmailServer(account)) return NextResponse.json({error:'Select an existing seller.'}, {status:400});
   try {
-    if (body.action === 'pending') return NextResponse.json({email: pendingEmail(account) || ''}, {headers});
-    if (body.action === 'verify') return NextResponse.json(issueVerification(account), {headers});
-    if (body.action === 'issue') return NextResponse.json({token:issueRecovery(account)}, {headers});
-    return NextResponse.json({error:'Unknown action.'},{status:400});
+    const email = String(body.email || '').trim().toLowerCase();
+    if (body.action !== 'issue' || email.length > 254 || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email))
+      throw new RecoveryError('Enter the new sign-in email for this seller.');
+    const owner = recoveredAccount(email);
+    if ((owner && owner !== account) || (email !== account && await getSellerByEmailServer(email)))
+      throw new RecoveryError('That sign-in email is already in use.');
+    return NextResponse.json({token:issueRecovery(account, email), email}, {headers});
   } catch (err) { return NextResponse.json({error:err instanceof RecoveryError ? err.message : 'Recovery is temporarily unavailable.'}, {status:409, headers}); }
 }

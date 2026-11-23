@@ -227,9 +227,11 @@ export function SellerWalletPanel({
   };
 
   const withdrawalRef = React.useRef({busy:false, details:"", id:""});
+  const [withdrawalMessage,setWithdrawalMessage] = useState('');
   const [submittingWithdrawal,setSubmittingWithdrawal] = useState(false);
   const handleRequestWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
+    setWithdrawalMessage('');
     const amt = parseFloat(withdrawAmount);
     if (!amt || amt <= 0) {
       notify('Please enter a valid amount to withdraw.');
@@ -260,7 +262,7 @@ export function SellerWalletPanel({
     const current = withdrawalRef.current;
     if (current.busy) return;
     const details = JSON.stringify([amt, withdrawMethod, withdrawDetails]);
-    if (current.details !== details) { current.details = details; current.id = crypto.randomUUID(); }
+    if (current.details !== details) { current.id = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5'); current.details = details; }
     current.busy = true;
     setSubmittingWithdrawal(true);
     const result = await requestWithdrawal(amt, withdrawMethod, withdrawDetails, current.id);
@@ -269,6 +271,7 @@ export function SellerWalletPanel({
     if (result.success) current.details = '';
 
     if (!result.success) {
+      setWithdrawalMessage(result.error || 'Failed to submit withdrawal.');
       notify(result.error || 'Failed to submit withdrawal.');
       return;
     }
@@ -289,6 +292,7 @@ export function SellerWalletPanel({
       href: '/seller/dashboard?tab=wallet',
       dedupeKey: `seller-withdrawal-request:${sellerEmail}:${Date.now()}`,
     });
+    setWithdrawalMessage(`Pending admin review · ${money(amt)} · Reference ${result.reference}`);
     notify(`Withdrawal request for ${money(amt)} submitted for review.`);
     setWithdrawAmount('');
     setWithdrawDetails('');
@@ -551,8 +555,9 @@ export function SellerWalletPanel({
             disabled={submittingWithdrawal || (isCryptoWithdrawal && !withdrawDetails.trim())}
             className="px-4 py-2 bg-[#0f172a] hover:bg-black text-white text-xs font-bold rounded-lg transition-colors mt-4 inline-block shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#0f172a]"
           >
-            Request withdrawal
+            {submittingWithdrawal ? 'Submitting…' : 'Request withdrawal'}
           </button>
+          {withdrawalMessage && <p role="status" className="mt-2 break-words text-sm">{withdrawalMessage}</p>}
           {isCryptoWithdrawal && (
             <p className="text-[11px] text-gray-400 mt-2 block">
               The amount is held from your balance right away, then paid out after review. Rejected requests are refunded.

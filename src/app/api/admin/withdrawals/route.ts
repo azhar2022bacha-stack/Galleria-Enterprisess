@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { readSellerWalletAdjustments, reviewWithdrawal, WithdrawalError } from '@/lib/sellerWalletAdjustmentsServer';

@@ -1193,7 +1193,7 @@ export async function requestWithdrawal(amount: number, method: string, address:
     const data = await response.json();
     if (!response.ok) return {success:false,error:data.error || 'Could not submit withdrawal.'};
     await syncApprovedRecharges();
-    return {success:true};
+    return {success:true, reference:String(data.reference)};
   } catch { return {success:false,error:'Could not confirm the withdrawal. Retry with the same details.'}; }
 }
 

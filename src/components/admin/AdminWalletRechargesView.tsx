@@ -18,7 +18,8 @@ export interface WalletRechargeItem {
   creditedAmount?: number;
   txHash: string;
   walletAddress?: string;
-  receipt?: {name:string;url:string};
+  hasReceipt?: boolean;
+  reviewReason?: string;
   submittedAt: string;
   status: 'Pending' | 'Confirmed' | 'Rejected';
 }
@@ -81,7 +82,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
 
   useEffect(() => setActiveStatus(initialStatus), [initialStatus]);
 
-  const refreshState = useRef({ version: 0, busy: false, etag: '' });
+  const refreshState = useRef({ version: 0, busy: false, retry: false, etag: '' });
   const handleRefresh = async (force = false) => {
     const state = refreshState.current;
     if (state.busy && !force) return;
@@ -91,19 +92,26 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
     try {
       const headers: Record<string, string> = {};
       if (state.etag) headers['If-None-Match'] = state.etag;
-      const response = await fetch('/api/recharges', {cache:'no-store', headers});
-      if (response.status === 304) return;
+      const response = await fetch('/api/recharges?view=queue', {cache:'no-store', headers});
+      if (response.status === 304) {
+        if (version === state.version) state.retry = false;
+        return;
+      }
       if (!response.ok) throw new Error('Unable to load recharges.');
       const data = await response.json();
       if (!Array.isArray(data.recharges)) throw new Error('Unable to load recharges.');
       if (version !== state.version) return;
+      state.retry = false;
       state.etag = response.headers.get('ETag') || '';
       setRecharges(previous => {
         const ids = new Set(data.recharges.map((item: WalletRechargeItem) => item.id));
         return [...data.recharges, ...previous.filter(item => !ids.has(item.id))];
       });
     } catch (error) {
-      if (version === state.version) notify?.(error instanceof Error ? error.message : 'Unable to load recharges.');
+      if (version === state.version) {
+        if (!state.retry) notify?.(error instanceof Error ? error.message : 'Unable to load recharges.');
+        state.retry = true;
+      }
     } finally {
       if (version === state.version) {
         state.busy = false;
@@ -114,25 +122,40 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
   useEffect(() => {
     const refresh = () => { if (!document.hidden) void handleRefresh(); };
     refresh();
-    const timer = window.setInterval(refresh, 2000);
+    const retryTimer = window.setInterval(() => { if (refreshState.current.retry) refresh(); }, 750);
+    const changed = () => { if (!document.hidden) void handleRefresh(true); };
+    window.addEventListener('galleria:recharges-changed', changed);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => {
-      clearInterval(timer);
+      window.removeEventListener('galleria:recharges-changed', changed);
+      window.clearInterval(retryTimer);
       refreshState.current.version++;
       refreshState.current.busy = false;
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
+  async function viewReceipt(id: string) {
+    try {
+      const response = await fetch('/api/recharges?id=' + encodeURIComponent(id), { cache: 'no-store' });
+      if (!response.ok) throw new Error();
+      const receipt = (await response.json()).recharges?.[0]?.receipt;
+      if (!receipt?.url) throw new Error();
+      setReceiptPreview(receipt);
+    } catch {
+      notify?.('Unable to load the receipt. Please try again.');
+    }
+  }
+
   const [rejectItem, setRejectItem] = useState<WalletRechargeItem | null>(null);
   const rejectRecharge = async (reason: string) => {
     if (!rejectItem) return;
-    const response = await fetch('/api/recharges', {method:'POST', headers:{'Content-Type':'application/json'},
+    const response = await fetch('/api/recharges?view=queue', {method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'review',id:rejectItem.id,status:'Rejected',reason})});
     if (!response.ok) throw Error('Unable to reject this recharge. Refresh and try again.');
     refreshState.current.version++;
-    setRecharges(previous => previous.map(item => item.id === rejectItem.id ? { ...item, status:'Rejected' } : item));
+    setRecharges(previous => previous.map(item => item.id === rejectItem.id ? { ...item, status:'Rejected', reviewReason: reason } : item));
     void handleRefresh(true);
     window.dispatchEvent(new Event('galleria:admin-todo-changed'));
     notify?.('Recharge rejected.');
@@ -251,7 +274,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
                 {filteredRecharges.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
                     <td className="py-3.5 px-6 font-mono font-semibold text-gray-900">
-                      {item.reference}{item.receipt&&<button type="button" onClick={()=>setReceiptPreview(item.receipt!)} className="block text-blue-600 hover:underline mt-1">View receipt</button>}{item.walletAddress&&<span className="block text-[10px] text-gray-400 break-all">{item.walletAddress}</span>}
+                      {item.reference}{item.hasReceipt&&<button type="button" onClick={()=>void viewReceipt(item.id)} className="block text-blue-600 hover:underline mt-1">View receipt</button>}{item.walletAddress&&<span className="block text-[10px] text-gray-400 break-all">{item.walletAddress}</span>}
                     </td>
                     <td className="py-3.5 px-6">
                       <div className="font-semibold text-gray-900">{item.depositor}</div>
@@ -280,6 +303,9 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
                         <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                           Pending
                         </span>
+                      )}
+                      {item.status === 'Rejected' && item.reviewReason && (
+                        <p className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-700"><strong>Reason:</strong> {item.reviewReason}</p>
                       )}
                     </td>
                     <td className="py-3.5 px-6 text-right whitespace-nowrap">

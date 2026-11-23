@@ -18,6 +18,7 @@ export interface WithdrawalRecord {
   status: 'pending' | 'paid_out' | 'rejected';
   payoutDetails: string;
   note: string;
+  reviewReason?: string;
   createdDate: string;
   createdTime: string;
 }
@@ -26,16 +27,6 @@ const TRANSACTIONS_KEY = 'galleria_seller_transactions';
 
 async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
   if (typeof window === 'undefined') return [];
-
-  let owners: any[] = [];
-  try {
-    const response = await fetch('/api/admin/owners', { cache: 'no-store' });
-    if (response.ok) {
-      const data = await response.json();
-      owners = Array.isArray(data?.owners) ? data.owners : [];
-    }
-  } catch {}
-  const ownersByEmail = new Map(owners.map((owner) => [String(owner.email || '').trim().toLowerCase(), owner]));
 
   let activeSellerEmail = '';
   try {
@@ -53,17 +44,17 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
     const details = row.withdrawal;
     const email = row.sellerEmail;
     const id = email + ':' + row.id;
-    const owner = ownersByEmail.get(email);
     const date = new Date(row.createdAt);
     seen.add(id);
     records.push({id, serverId:row.id, transactionId:row.id, internalId:row.id, storageKey:'',
-      sellerName:owner?.shopName || owner?.name || email, handle:owner?.handle || email, email,
+      sellerName:email, handle:email, email,
       amount:Math.abs(row.amount), status:details.status === 'completed' ? 'paid_out' : details.status,
-      payoutDetails:details.method + ': ' + details.address, note:details.reviewReason || row.reason,
+      payoutDetails:details.method + ': ' + details.address, note:row.reason, reviewReason:details.reviewReason,
       createdDate:date.toLocaleDateString('en-US'),createdTime:date.toLocaleTimeString('en-US')});
   }
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const storageKey = window.localStorage.key(index);
+  let keys: string[] = [];
+  try { keys = Object.keys(window.localStorage); } catch { /* Legacy records require browser storage. */ }
+  for (const storageKey of keys) {
     if (storageKey !== TRANSACTIONS_KEY && !storageKey?.startsWith(`${TRANSACTIONS_KEY}:`)) continue;
 
     const email = (storageKey.startsWith(`${TRANSACTIONS_KEY}:`)
@@ -95,7 +86,6 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
       if (seen.has(uniqueId)) return;
       seen.add(uniqueId);
 
-      const owner = ownersByEmail.get(email);
       const createdAt = new Date(transaction.createdAt || '');
       const validDate = Number.isFinite(createdAt.getTime());
       const payoutMethod = String(transaction.network || 'Payout');
@@ -104,14 +94,15 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
         id: uniqueId,
         storageKey,
         transactionId,
-        sellerName: String(owner?.shopName || owner?.name || email || 'Seller'),
-        handle: String(owner?.handle || (email ? `@${email.split('@')[0]}` : '')),
+        sellerName: email || 'Seller',
+        handle: email ? `@${email.split('@')[0]}` : '',
         email,
         internalId: transactionId,
         amount: Number(transaction.amount) || 0,
         status,
         payoutDetails: `${payoutMethod}: ${payoutAddress}`,
         note: description,
+        reviewReason: transaction.reviewReason,
         createdDate: validDate ? createdAt.toLocaleDateString('en-US') : '—',
         createdTime: validDate ? createdAt.toLocaleTimeString('en-US') : '',
       });
@@ -152,14 +143,34 @@ interface AdminWithdrawalsViewProps {
 type TabType = 'pending' | 'paid_out' | 'rejected' | 'all';
 
 export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
-  const [items, setItems] = useState<WithdrawalRecord[]>([]);
+  const [requests, setItems] = useState<WithdrawalRecord[]>([]);
+  const [owners, setOwners] = useState(new Map<string, { name?: string; shopName?: string; handle?: string }>());
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadNames() {
+      try {
+        const response = await fetch('/api/admin/owners?view=summary', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return;
+        const { owners } = await response.json();
+        if (Array.isArray(owners) && !controller.signal.aborted) {
+          setOwners(new Map(owners.map(owner => [String(owner.email).toLowerCase(), owner])));
+        }
+      } catch { /* Requests can be identified by email while names are unavailable. */ }
+    }
+    void loadNames();
+    return () => controller.abort();
+  }, []);
+  const items = useMemo(() => requests.map(item => {
+    const owner = owners.get(item.email);
+    return owner ? { ...item, sellerName: owner.shopName || owner.name || item.sellerName, handle: owner.handle || item.handle } : item;
+  }), [requests, owners]);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadError,setLoadError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [processingWithdrawalId, setProcessingWithdrawalId] = useState<string | null>(null);
 
-  const refreshState = useRef({ version: 0, busy: false });
+  const refreshState = useRef({ version: 0, busy: false, retry: false });
   const refreshWithdrawals = async (force = false) => {
     const state = refreshState.current;
     if (state.busy && !force) return;
@@ -173,9 +184,13 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
         const ids = new Set(records.map(item => item.id));
         return [...records, ...previous.filter(item => !ids.has(item.id))];
       });
+      state.retry = false;
       setLoadError(false);
     } catch {
-      if (version === state.version) setLoadError(true);
+      if (version === state.version) {
+        state.retry = true;
+        setLoadError(true);
+      }
     } finally {
       if (version === state.version) {
         state.busy = false;
@@ -186,13 +201,16 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
   useEffect(() => {
     const refresh = () => { if (!document.hidden) void refreshWithdrawals(); };
     refresh();
-    const timer = window.setInterval(refresh, 2000);
+    const retryTimer = window.setInterval(() => { if (refreshState.current.retry) refresh(); }, 750);
+    const changed = () => { if (!document.hidden) void refreshWithdrawals(true); };
+    window.addEventListener('galleria:withdrawals-changed', changed);
     window.addEventListener('focus', refresh);
     window.addEventListener('storage', refresh);
     window.addEventListener('galleria:seller-orders-changed', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => {
-      clearInterval(timer);
+      window.removeEventListener('galleria:withdrawals-changed', changed);
+      window.clearInterval(retryTimer);
       refreshState.current.version++;
       refreshState.current.busy = false;
       window.removeEventListener('focus', refresh);
@@ -298,7 +316,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     refreshState.current.version++;
     void refreshWithdrawals(true);
     setItems((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const } : i))
+      prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const, reviewReason: reason } : i))
     );
     notify?.(`Withdrawal of ${formatCurrency(target?.amount || 0)} rejected and refunded to merchant wallet.`);
   };
@@ -318,7 +336,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
         const matchesHandle = item.handle.toLowerCase().includes(q);
         const matchesEmail = item.email.toLowerCase().includes(q);
         const matchesAmount = item.amount.toString().includes(q);
-        const matchesNote = item.note.toLowerCase().includes(q);
+        const matchesNote = (item.note + ' ' + (item.reviewReason || '')).toLowerCase().includes(q);
         const matchesPayout = item.payoutDetails.toLowerCase().includes(q);
         return (
           matchesSeller ||
@@ -522,6 +540,9 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
                         <span className="text-[10px] text-gray-500 font-semibold tracking-wider mt-0.5 block">
                           {item.note}
                         </span>
+                        {isRejected && item.reviewReason && (
+                          <p className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-700"><strong>Reason:</strong> {item.reviewReason}</p>
+                        )}
                       </div>
                     </td>
 

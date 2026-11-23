@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2 } from 'lucide-react';
 import { AdminSidebar, AdminTab, SettingsSubTab } from '@/components/admin/AdminSidebar';
+import { watchAdminPaymentChanges } from '@/lib/adminPaymentChanges';
 import { AdminHeader } from '@/components/admin/AdminHeader';
 import type { SellerConfirmedOrder } from '@/components/admin/AdminConfirmSellerOrdersView';
 import { fetchAdminConsignOrders } from '@/lib/adminConsignOrders';
@@ -327,13 +328,22 @@ export default function AdminPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (authVerified) return watchAdminPaymentChanges();
+  }, [authVerified]);
+
   // Keep To-do totals connected to the current saved records.
   useEffect(() => {
     let cancelled = false;
     let requestInFlight = false;
+    let refreshRequested = false;
     const updateCounts = async () => {
-      if (document.visibilityState === 'hidden') return;
-      if (requestInFlight) return;
+      if (cancelled || document.hidden) return;
+      if (requestInFlight) {
+        refreshRequested = true;
+        return;
+      }
+      refreshRequested = false;
       requestInFlight = true;
       try {
         const nextCounts = await fetchAdminTodoCounts();
@@ -342,6 +352,7 @@ export default function AdminPage() {
         }
       } finally {
         requestInFlight = false;
+        if (refreshRequested) void updateCounts();
       }
     };
     void updateCounts();

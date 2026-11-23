@@ -13,16 +13,16 @@ export const dynamic = 'force-dynamic';
 const file = path.join(process.cwd(), 'src/data/wallet_recharges.json');
 
 function read(): any[] {
-  try {
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
-  } catch {
-    return [];
-  }
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) : [];
 }
 
 function write(rows: any[]): void {
   fs.writeFileSync(`${file}.tmp`, JSON.stringify(rows, null, 2));
   fs.renameSync(`${file}.tmp`, file);
+}
+
+function queueEntry({ receipt, ...entry }: any) {
+  return { ...entry, hasReceipt: Boolean(receipt?.url) };
 }
 
 function money(value: number): string {
@@ -38,7 +38,8 @@ function tryNotify(input: Parameters<typeof createSellerNotificationServer>[0]):
 }
 
 export async function GET(req: Request) {
-  const email = new URL(req.url).searchParams.get('email')?.trim().toLowerCase();
+  const params = new URL(req.url).searchParams;
+  const email = params.get('email')?.trim().toLowerCase();
   const admin = await getRequestAdmin(req);
   if (!email && !admin) return NextResponse.json({ error: 'Admin sign-in is required.' }, { status: 401 });
   if (email && !admin) {
@@ -46,7 +47,11 @@ export async function GET(req: Request) {
     if (!normalizedSessionEmail) return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
     if (normalizedSessionEmail !== email) return NextResponse.json({ error: 'You can only view your own wallet recharges.' }, { status: 403 });
   }
-  const data = { recharges: read().filter((row) => !email || row.handle === email) };
+  const id = params.get('id');
+  const rows = read().filter(row => (!email || row.handle === email) && (!id || row.id === id));
+  const data = { recharges: params.get('view') === 'queue'
+    ? rows.map(queueEntry)
+    : rows };
   const etag = '"' + createHash('sha256').update(JSON.stringify(data)).digest('hex') + '"';
   const headers = { 'Cache-Control': 'no-store, private', ETag: etag };
   if (req.headers.get('if-none-match') === etag) return new NextResponse(null, {status:304, headers});
@@ -55,6 +60,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const summaryOnly = new URL(req.url).searchParams.get('view') === 'queue';
     const body = await req.json();
     const admin = await getRequestAdmin(req);
     if (body.action === 'review') {
@@ -79,11 +85,13 @@ export async function POST(req: Request) {
         if (!Number.isFinite(creditedAmount) || creditedAmount <= 0) throw new Error('Invalid credited USD amount.');
         item.creditedAmount = Math.round(creditedAmount * 100) / 100;
       }
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (body.status === 'Rejected' && (!reason || reason.length > 1000)) {
+        throw new Error('Enter a reason for rejection (up to 1000 characters).');
+      }
       item.status = body.status;
       item.reviewedAt = new Date().toISOString();
-      item.reviewReason = body.status === 'Rejected'
-        ? String(body.reason || 'We could not verify the payment from the information provided. Please review your receipt and transaction details before submitting again.').trim().slice(0, 1000)
-        : '';
+      item.reviewReason = body.status === 'Rejected' ? reason : '';
       write(rows);
 
       if (body.status === 'Confirmed') {
@@ -125,7 +133,7 @@ export async function POST(req: Request) {
           dedupeKey: `recharge-reviewed:${item.id}:Rejected`,
         });
       }
-      return NextResponse.json({ success: true, recharge: item });
+      return NextResponse.json({ success: true, recharge: summaryOnly ? queueEntry(item) : item });
     }
 
     const sellerEmail = String(body.email || '').trim().toLowerCase();
@@ -178,7 +186,7 @@ export async function POST(req: Request) {
       href: '/seller/dashboard?tab=wallet',
       dedupeKey: `recharge-submitted:${id}`,
     });
-    return NextResponse.json({ success: true, recharge });
+    return NextResponse.json({ success: true, recharge: summaryOnly ? queueEntry(recharge) : recharge });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

@@ -316,7 +316,24 @@ export default function SellerDashboardPage() {
   // Navigation State - Strictly matching the 16 items
   const [activeNav, setActiveNav] = useState<string>('dashboard');
   const [navigationReady, setNavigationReady] = useState(false);
-  useEffect(()=>{let running=false;const sync=async()=>{if(running||document.visibilityState==='hidden')return;running=true;try{await syncApprovedRecharges();}catch{}finally{running=false;}};sync();const timer=setInterval(sync,30_000);window.addEventListener('focus',sync);document.addEventListener('visibilitychange',sync);return()=>{clearInterval(timer);window.removeEventListener('focus',sync);document.removeEventListener('visibilitychange',sync);};},[]);
+  const viewingWallet = activeNav === 'wallet';
+  useEffect(() => {
+    let running = false;
+    const sync = async () => {
+      if (running || document.hidden) return;
+      running = true;
+      try { await syncApprovedRecharges(); } finally { running = false; }
+    };
+    void sync();
+    const timer = window.setInterval(sync, viewingWallet ? 3000 : 30_000);
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, [viewingWallet]);
   const [timeRange, setTimeRange] = useState<'today' | 'this_week' | 'this_month' | 'custom'>('this_week');
 
   useEffect(() => {

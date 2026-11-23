@@ -193,7 +193,7 @@ export function SellerWalletPanel({
     setSubmittingDeposit(true);
     try {
       const seller = JSON.parse(localStorage.getItem('galleria_active_seller') || '{}');
-      const response = await fetch('/api/recharges', {
+      const response = await fetch('/api/recharges?view=queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -210,7 +210,6 @@ export function SellerWalletPanel({
         throw new Error(details?.error || 'Unable to submit deposit.');
       }
 
-      // The successful response includes a copy of the uploaded receipt.
       void response.body?.cancel().catch(() => {});
       setDepositReceipt(null);
       setDepositModalOpen(false);
@@ -260,7 +259,14 @@ export function SellerWalletPanel({
     const current = withdrawalRef.current;
     if (current.busy) return;
     const details = JSON.stringify([amt, withdrawMethod, withdrawDetails]);
-    if (current.details !== details) { current.details = details; current.id = crypto.randomUUID(); }
+    if (current.details !== details) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      current.id = [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+      current.details = details;
+    }
     current.busy = true;
     setSubmittingWithdrawal(true);
     const result = await requestWithdrawal(amt, withdrawMethod, withdrawDetails, current.id);
@@ -624,7 +630,7 @@ export function SellerWalletPanel({
                     <td className="py-3 px-4 text-gray-500">{formatDate(tx.createdAt)}</td>
                     <td className="py-3 px-3">
                       <span className="capitalize font-semibold text-gray-800">
-                        {tx.type.replace('_', ' ')}
+                        {tx.eventType === 'withdrawal-refund' ? 'Withdrawal refund' : tx.type.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-gray-700">{tx.description}
@@ -640,7 +646,7 @@ export function SellerWalletPanel({
                             : 'bg-rose-50 text-rose-700 border-rose-200'
                         }`}
                       >
-                        {tx.status}
+                        {tx.eventType === 'withdrawal-refund' ? 'Refunded' : tx.status}
                       </span>
                     </td>
                     <td

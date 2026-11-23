@@ -25,7 +25,7 @@ export function RejectionReasonDialog({ kind, onCancel, onReject }: {
       catch (err) { setError(err instanceof Error ? err.message : 'Unable to reject the request.'); setBusy(false); }
     }}>
       <h2 id="reject-request-title" className="font-semibold">Reject {kind} request?</h2>
-      <label className="mt-4 block text-sm">Reason
+      <label className="mt-4 block text-sm">Reason for rejection
         <textarea autoFocus required disabled={busy} maxLength={kind === 'withdrawal' ? 500 : 1000} value={reason} onChange={e=>setReason(e.target.value)}
           className="mt-1 block w-full rounded border p-2" rows={3} placeholder="Explain the reason to the seller" />
       </label>

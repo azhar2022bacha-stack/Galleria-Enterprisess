@@ -249,7 +249,7 @@ export async function fetchAdminTodoCounts(): Promise<AdminTodoCounts> {
   const nextCounts: AdminTodoCounts = {
     ...lastSuccessfulTodoCounts,
     ...data?.counts,
-    withdrawals: getPendingWithdrawalCount(),
+    withdrawals: data?.counts?.withdrawals ?? getPendingWithdrawalCount(),
     refundRequests: pendingRefunds,
     merchantOverdue: hasOrderSnapshot
       ? orders.filter((order) => orderIsMerchantOverdue(order, now)).length

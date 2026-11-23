@@ -1,3 +1,4 @@
+import { CRYPTO_WITHDRAW_METHODS } from './depositMethods';
 import { PACKAGE_TIERS, type PackageTierId } from './packageTiers';
 import fs from 'fs';
 import path from 'path';
@@ -151,6 +152,7 @@ function confirmedDeposits(email: string): number {
 export class WithdrawalError extends Error {}
 
 export function submitWithdrawal(email: string, id: string, cents: number, method: string, address: string) {
+  if (!CRYPTO_WITHDRAW_METHODS.includes(method)) throw new WithdrawalError("Contact Support for digital-wallet withdrawals.");
   if (!Number.isSafeInteger(cents) || cents < 1 || !method || method.length > 80 || !address || address.length > 500 ||
       !/^[a-f0-9-]{36}$/i.test(id)) throw new WithdrawalError('Invalid withdrawal details.');
   const rows = readAll();

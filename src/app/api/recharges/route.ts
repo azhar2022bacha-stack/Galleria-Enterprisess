@@ -1,4 +1,3 @@
-import { NONCRYPTO_TOP_UP_METHODS } from '@/lib/depositMethods';
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
@@ -129,9 +128,9 @@ export async function POST(req: Request) {
     const amount = Number(body.amount);
     const submittedNetwork = String(body.network || '').trim();
     const network = SELLER_CRYPTO_DEPOSIT_NETWORKS.find((item) => item.name === submittedNetwork);
-    if (!network && !NONCRYPTO_TOP_UP_METHODS.includes(submittedNetwork)) throw new Error('Choose a supported deposit method.');
-    const expectedAddress = network ? getSellerCryptoReceivingAddresses(readCryptoReceivingAddressConfig(), sellerEmail)[network.id] : '';
-    if (network && !expectedAddress) throw new Error(`Admin has not configured a receiving address for ${network.name} yet.`);
+    if (!network) throw new Error('Choose a supported crypto deposit network.');
+    const expectedAddress = getSellerCryptoReceivingAddresses(readCryptoReceivingAddressConfig(), sellerEmail)[network.id];
+    if (!expectedAddress) throw new Error(`Admin has not configured a receiving address for ${network.name} yet.`);
     if (String(body.walletAddress || '').trim() !== expectedAddress) {
       throw new Error('This receiving address has changed. Refresh the wallet and try again with the current address.');
     }
@@ -151,8 +150,8 @@ export async function POST(req: Request) {
       reference: `RC-${id.slice(0, 8).toUpperCase()}`,
       depositor: String(body.name || sellerEmail),
       handle: sellerEmail,
-      coin: network ? (submittedNetwork.startsWith('USDC') ? 'USDC' : 'USDT') : 'USD',
-      network: submittedNetwork,
+      coin: String(body.network || '').startsWith('USDC') ? 'USDC' : 'USDT',
+      network: network.name,
       amount: Math.round(amount * 100) / 100,
       txHash: '',
       walletAddress: expectedAddress,

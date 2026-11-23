@@ -1,1 +1,1 @@
-export const NONCRYPTO_TOP_UP_METHODS = ['UPI', 'Paytm', 'Debit Card', 'Credit Card', 'Visa Card', 'Mastercard', 'PayPal', 'Square', 'QuickBooks', 'Apple Pay', 'Zelle', 'Venmo'];
+export const CRYPTO_WITHDRAW_METHODS = ['USDT (TRC20)', 'USDT (ERC20)', 'USDT (BEP20)', 'USDC (Arbitrum One)', 'BTC (Bitcoin)'];

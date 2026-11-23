@@ -46,7 +46,11 @@ export async function GET(req: Request) {
     if (!normalizedSessionEmail) return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
     if (normalizedSessionEmail !== email) return NextResponse.json({ error: 'You can only view your own wallet recharges.' }, { status: 403 });
   }
-  const data = { recharges: read().filter((row) => !email || row.handle === email) };
+  const params = new URL(req.url).searchParams;
+  const id = params.get('id');
+  const queueView = params.get('view') === 'queue';
+  const recharges = read().filter(row => (!email || row.handle === email) && (!id || row.id === id));
+  const data = { recharges: queueView ? recharges.map(({receipt, ...row}) => ({...row, hasReceipt:Boolean(receipt)})) : recharges };
   const etag = '"' + createHash('sha256').update(JSON.stringify(data)).digest('hex') + '"';
   const headers = { 'Cache-Control': 'no-store, private', ETag: etag };
   if (req.headers.get('if-none-match') === etag) return new NextResponse(null, {status:304, headers});

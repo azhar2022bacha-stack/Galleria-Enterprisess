@@ -1,5 +1,6 @@
 'use client';
 
+import { subscribeToAdminPaymentUpdates } from '@/lib/adminPaymentUpdates';
 import { RejectionReasonDialog } from './RejectionReasonDialog';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RefreshCw, Search, CheckCircle2, XCircle } from 'lucide-react';
@@ -177,21 +178,16 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     }
   };
   useEffect(() => {
-    const refresh = () => { if (!document.hidden) void refreshWithdrawals(); };
-    refresh();
-    const timer = window.setInterval(refresh, 2000);
-    window.addEventListener('focus', refresh);
+    const unsubscribe = subscribeToAdminPaymentUpdates('withdrawals', force => { void refreshWithdrawals(force); });
+    const refresh = () => { void refreshWithdrawals(); };
     window.addEventListener('storage', refresh);
     window.addEventListener('galleria:seller-orders-changed', refresh);
-    document.addEventListener('visibilitychange', refresh);
     return () => {
-      clearInterval(timer);
+      unsubscribe();
       refreshState.current.version++;
       refreshState.current.busy = false;
-      window.removeEventListener('focus', refresh);
       window.removeEventListener('storage', refresh);
       window.removeEventListener('galleria:seller-orders-changed', refresh);
-      document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
 

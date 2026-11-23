@@ -1,3 +1,4 @@
+import { sellerPackage } from '@/lib/sellerWalletAdjustmentsServer';
 import { NextResponse } from 'next/server';
 import { getRequestAdmin } from '@/lib/adminSession';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
@@ -64,6 +65,10 @@ export async function POST(request: Request) {
     }
 
     const targetEmail = (email || 'default').trim();
+    const { tier } = sellerPackage(targetEmail.toLowerCase());
+    if (tier.id !== 'free' && products.length > tier.productLimit) {
+      return NextResponse.json({ success: false, error: tier.name + ' allows up to ' + tier.productLimit + ' products.' }, { status: 409 });
+    }
     const result = saveSellerProductsByEmail(targetEmail, products);
 
     return NextResponse.json({

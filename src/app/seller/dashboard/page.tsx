@@ -20,6 +20,7 @@ import {
   getSellerProducts,
   saveSellerProducts,
   getCurrentPackageTier,
+  cacheSellerPackage,
   SellerOrder,
 } from '@/lib/sellerOrders';
 import type { ShopSettings } from '@/lib/sellerOrders';
@@ -504,6 +505,7 @@ export default function SellerDashboardPage() {
             setSellerStatus(st);
             setSellerIdStatus(idSt);
             setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
+            if (data.seller.package) cacheSellerPackage(data.seller.package.tier.id, data.seller.package.spend, data.seller.email);
             setGrantedFunds(Number(data.seller.grantedFunds) || 0);
             setRetailGrossSales(Number(data.seller.retailGrossSales) || 0);
             setCreditScore(data.seller.storeTraffic?.creditScore ?? 100);

@@ -148,22 +148,8 @@ export interface OperationsMessage {
   reply?: string;
 }
 
-export type PackageTierId = 'free' | 'silver' | 'gold' | 'platinum';
-
-export interface PackageTier {
-  id: PackageTierId;
-  name: string;
-  rebatePercent: number;
-  productLimit: number;
-  price: number;
-}
-
-export const PACKAGE_TIERS: PackageTier[] = [
-  { id: 'free', name: 'Free Shop', rebatePercent: 15, productLimit: 300, price: 0 },
-  { id: 'silver', name: 'Silver Shop', rebatePercent: 20, productLimit: 1000, price: 10000 },
-  { id: 'gold', name: 'Gold Shop', rebatePercent: 30, productLimit: 2500, price: 20000 },
-  { id: 'platinum', name: 'Platinum Shop', rebatePercent: 40, productLimit: 5000, price: 30000 },
-];
+export { PACKAGE_TIERS, type PackageTierId, type PackageTier } from './packageTiers';
+import { PACKAGE_TIERS, type PackageTierId, type PackageTier } from './packageTiers';
 
 export interface ProductQuery {
   id: string;
@@ -896,40 +882,33 @@ export function getPackageSpend(): number {
   return Number.isFinite(val) ? val : 0;
 }
 
-export function upgradePackageTier(
-  targetTierId: PackageTierId
-): { success: boolean; error?: string } {
-  const targetTier = PACKAGE_TIERS.find((t) => t.id === targetTierId);
-  if (!targetTier) return { success: false, error: 'Invalid tier.' };
-
-  const currentSpend = getPackageSpend();
-  const cost = Math.max(0, targetTier.price - currentSpend);
-
-  const wallet = getWallet();
-  if (cost > wallet) {
-    return {
-      success: false,
-      error: `Insufficient wallet balance. You need $${(cost - wallet).toLocaleString()} more.`,
-    };
-  }
-
-  const newBalance = Math.round((wallet - cost) * 100) / 100;
-  setWallet(newBalance);
-  window.localStorage.setItem(sellerStorageKey(PACKAGE_TIER_KEY), targetTierId);
-  window.localStorage.setItem(sellerStorageKey(PACKAGE_SPEND_KEY), targetTier.price.toFixed(2));
-
-  addWalletTransaction({
-    id: `tx-tier-${Date.now()}`,
-    type: 'withdrawal',
-    amount: cost,
-    description: `Upgrade to ${targetTier.name}`,
-    status: 'completed',
-    createdAt: new Date().toISOString(),
-  });
-
+export function cacheSellerPackage(tierId: PackageTierId, spend: number, email: string) {
+  if (resolveSellerEmail() !== email.trim().toLowerCase()) return;
+  window.localStorage.setItem(sellerStorageKey(PACKAGE_TIER_KEY), tierId);
+  window.localStorage.setItem(sellerStorageKey(PACKAGE_SPEND_KEY), spend.toFixed(2));
   emitChange();
-  return { success: true };
 }
+
+export async function upgradePackageTier(targetTierId: PackageTierId): Promise<{ success: boolean; error?: string }> {
+  const email = resolveSellerEmail();
+  try {
+    const response = await fetch('/api/seller/package', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tierId: targetTierId, walletCents: amountToCents(getWallet()) }),
+    });
+    const result = await response.json();
+    if (response.ok && result.success && email === resolveSellerEmail()) {
+      cacheSellerPackage(result.tierId, result.spend, email);
+      applySyncedWalletAdjustmentTotalCents(result.walletTotalCents);
+      emitChange();
+    }
+    return result;
+  } catch {
+    return { success: false, error: 'Could not confirm the purchase. Refresh your package before retrying.' };
+  }
+}
+
 
 export function getAlertEmail(): string {
   if (!isBrowser()) return '';
@@ -1440,9 +1419,10 @@ export function orderPaymentBreakdown(amount: number, tierId: PackageTierId = ge
 
 export const CONSIGN_SELLER_COMMISSION_RATE = 15;
 
-export function sellerOrderPaymentBreakdown(order: Pick<SellerOrder, 'amount' | 'source' | 'consignOrderId'>) {
-  return order.source === 'consign' || Boolean(order.consignOrderId)
-    ? orderPaymentBreakdownAtRate(order.amount, CONSIGN_SELLER_COMMISSION_RATE)
+export function sellerOrderPaymentBreakdown(order: Pick<SellerOrder, 'amount' | 'source' | 'consignOrderId' | 'commissionRate' | 'sellerPaidAmount'>) {
+  const paidRate = Number.parseFloat(order.commissionRate || '');
+  return order.sellerPaidAmount != null && Number.isFinite(paidRate)
+    ? orderPaymentBreakdownAtRate(order.amount, paidRate)
     : orderPaymentBreakdown(order.amount);
 }
 

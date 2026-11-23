@@ -43,7 +43,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
     const targetTier = PACKAGE_TIERS.find((t) => t.id === targetTierId);
     if (!targetTier) return;
 
-    const cost = Math.max(0, targetTier.price - packageSpend);
+    const cost = targetTier.price;
     if (cost === 0) return;
 
     if (wallet < cost) {
@@ -53,7 +53,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
       return;
     }
 
-    const res = upgradePackageTier(targetTierId);
+    const res = await upgradePackageTier(targetTierId);
     if (res.success) {
       const title = `Upgraded to ${targetTier.name}`;
       const message = `You can now add up to ${targetTier.productLimit.toLocaleString()} products.`;
@@ -83,7 +83,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
           Package &amp; tier
         </h1>
         <p className="text-xs sm:text-sm text-gray-500 mt-1">
-          Raise your resale rebate and product limit by purchasing a higher package — a one-time charge from your wallet balance (non-refundable).
+          Raise your seller commission and product limit by purchasing a higher package — a one-time charge from your wallet balance (non-refundable).
         </p>
       </div>
 
@@ -109,7 +109,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
 
       {/* Upgrade explainer paragraph matching screenshot */}
       <p className="text-xs text-gray-500 mt-4 leading-relaxed max-w-3xl">
-        Upgrading a tier is a <span className="font-semibold text-gray-700">one-time purchase</span> from your wallet balance — it is spent, not refundable. Pick a tier to raise your resale rebate and product limit; you only pay the difference to reach it.
+        Upgrading a tier is a <span className="font-semibold text-gray-700">one-time purchase</span> from your wallet balance — it is spent, not refundable. Pick a tier to raise your seller commission and product limit. Each upgrade costs the listed price.
       </p>
 
       {/* 4 Tier Cards matching screenshot */}
@@ -117,7 +117,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
         {PACKAGE_TIERS.map((tier, idx) => {
           const isCurrent = tier.id === currentTierId;
           const isIncluded = idx < currentTierIndex;
-          const costToUpgrade = Math.max(0, tier.price - packageSpend);
+          const costToUpgrade = tier.price;
           const canAfford = wallet >= costToUpgrade;
 
           return (
@@ -146,7 +146,7 @@ export function SellerPackagePanel({ sellerEmail, onOpenWallet, notify }: Seller
                     {tier.rebatePercent}%
                   </span>
                   <span className="text-[11px] text-gray-400 block mt-0.5">
-                    resale rebate
+                    seller commission
                   </span>
                 </div>
 

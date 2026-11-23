@@ -1,3 +1,4 @@
+import { sellerPackage } from '@/lib/sellerWalletAdjustmentsServer';
 import { NextResponse } from 'next/server';
 import { readStoreExposure } from '@/lib/storeExposureServer';
 import { getSellerByEmailServer } from '@/lib/inviteCodesServer';
@@ -60,6 +61,7 @@ export async function GET(request: Request) {
           idStatus: seller.idStatus || 'No ID uploaded',
           isApproved,
           approvalViewed: hasViewedSellerApproval(sessionEmail),
+          package: sellerPackage(sessionEmail),
           grantedFunds: Math.max(0, sellerWalletAdjustmentCents(guaranteeAdjustments)) / 100,
           retailGrossSales: retailSalesCents / 100,
           storeTraffic: readStoreExposure(sessionEmail),

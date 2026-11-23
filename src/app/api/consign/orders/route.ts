@@ -1,3 +1,4 @@
+import { sellerPackage } from '@/lib/sellerWalletAdjustmentsServer';
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
@@ -85,7 +86,7 @@ function tryNotifySeller(input: Parameters<typeof createSellerNotificationServer
 
 type ConsignSellerStage = 'awaiting_payment' | 'confirmed' | 'picked_up' | 'on_the_way' | 'delivered';
 
-const CONSIGN_COMMISSION_RATE = 15;
+
 const money = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function toCents(value: unknown): number {
@@ -95,8 +96,8 @@ function toCents(value: unknown): number {
   return Number.isSafeInteger(cents) ? cents : Number.NaN;
 }
 
-function commissionCentsFor(grossCents: number): number {
-  return Math.floor((grossCents * CONSIGN_COMMISSION_RATE + 50) / 100);
+function commissionCentsFor(grossCents: number, rate: number): number {
+  return Math.floor((grossCents * rate + 50) / 100);
 }
 
 function grossCentsFor(order: PersistedConsignOrder): number {
@@ -134,7 +135,7 @@ function sellerPaymentNotification(order: PersistedConsignOrder) {
     message: [
       { text: `Your payment for order ${number} was confirmed. ` },
       { text: money(Number.isFinite(paidCents) ? paidCents : Math.max(0, grossCents - commissionCents)), emphasis: 'blue' as const },
-      { text: ' was deducted from your wallet. Your 15% commission is ' },
+      { text: ` was deducted from your wallet. Your ${order.commissionRate} commission is ` },
       { text: money(Number.isFinite(commissionCents) ? commissionCents : 0), emphasis: 'blue' as const },
       { text: '. The order is waiting for admin confirmation.' },
     ],
@@ -268,18 +269,21 @@ function processSellerConsignPayment(
     return NextResponse.json({ success: false, error: 'You can only pay for orders assigned to your seller account.' }, { status: 403 });
   }
 
+  const rate = sellerPackage(sellerEmail).tier.rebatePercent;
   const paymentRows = orders.map((order) => {
     const grossCents = grossCentsFor(order);
     if (!Number.isSafeInteger(grossCents) || grossCents <= 0) {
       return { order, grossCents, commissionCents: Number.NaN, payableCents: Number.NaN, existingAdjustment: undefined };
     }
-    const commissionCents = commissionCentsFor(grossCents);
+    const existingAdjustment = findSellerWalletAdjustment(sellerEmail, 'consign-order-payment:' + order.id);
+    const commissionCents = existingAdjustment ? grossCents - toCents(Math.abs(existingAdjustment.amount))
+      : order.sellerPaidAt ? toCents(order.sellerCommission ?? order.commission) : commissionCentsFor(grossCents, rate);
     return {
       order,
       grossCents,
       commissionCents,
       payableCents: grossCents - commissionCents,
-      existingAdjustment: findSellerWalletAdjustment(sellerEmail, `consign-order-payment:${order.id}`),
+      existingAdjustment,
     };
   });
 
@@ -324,7 +328,7 @@ function processSellerConsignPayment(
       const result = addSellerWalletAdjustment({
         sellerEmail,
         amountCents: -payableCents,
-        reason: `Consignment order ${order.orderNumber || order.id} payment (85% after 15% commission)`,
+        reason: `Consignment order ${order.orderNumber || order.id} payment (${100 - rate}% after ${rate}% commission)`,
         dedupeKey: `consign-order-payment:${order.id}`,
         eventType: 'consign-order-payment',
       });
@@ -334,7 +338,7 @@ function processSellerConsignPayment(
       ...order,
       amount: grossCents / 100,
       commission: commissionCents / 100,
-      commissionRate: '15%',
+      commissionRate: order.sellerPaidAt ? order.commissionRate : adjustment?.reason.match(/after (\d+%) commission/)?.[1] || rate + '%',
       sellerCommission: commissionCents / 100,
       sellerPaidAmount: payableCents / 100,
       sellerPaidAt: order.sellerPaidAt || updatedAt,

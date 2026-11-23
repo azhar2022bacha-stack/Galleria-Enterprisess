@@ -1,3 +1,4 @@
+import { PACKAGE_TIERS, type PackageTierId } from './packageTiers';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -5,6 +6,7 @@ import { randomUUID } from 'crypto';
 export type SellerWalletAdjustmentEvent =
   | 'commission-payout'
   | 'withdrawal-refund'
+  | 'package-purchase'
   | 'manual-adjustment'
   | 'consign-order-payment'
   | 'consign-order-delivery';
@@ -108,4 +110,33 @@ export function addSellerWalletAdjustment(input: {
     duplicate: false,
     totalCents: sellerWalletAdjustmentCents(rows.filter((row) => row.sellerEmail === sellerEmail && row.accountType === 'wallet')),
   };
+}
+
+export function sellerPackage(email: string, rows = readSellerWalletAdjustments(email)) {
+  const payments = rows.filter(row => row.sellerEmail === email && row.eventType === 'package-purchase' && row.accountType === 'wallet');
+  const tier = [...PACKAGE_TIERS].reverse().find(t => payments.some(p => p.dedupeKey === 'package:' + t.id)) || PACKAGE_TIERS[0];
+  return { tier, spend: -sellerWalletAdjustmentCents(payments) / 100 };
+}
+
+export function purchaseSellerPackage(email: string, id: PackageTierId, walletCents: number) {
+  const rows = readAll();
+  const own = rows.filter(row => row.sellerEmail === email);
+  const current = sellerPackage(email, own);
+  const tier = PACKAGE_TIERS.find(t => t.id === id);
+  if (!tier || !tier.price || tier.price < current.tier.price) throw Error('Select a higher package.');
+  const walletTotalCents = sellerWalletAdjustmentCents(own.filter(row => row.accountType === 'wallet'));
+  if (current.tier.id === id) return { tierId: id, spend: current.spend, walletTotalCents };
+  const depositsFile = path.join(path.dirname(FILE), 'wallet_recharges.json');
+  const deposits = fs.existsSync(depositsFile) ? JSON.parse(fs.readFileSync(depositsFile, 'utf8')) : [];
+  const depositCents = deposits.filter((row: { handle: string; status: string }) => row.handle === email && row.status === 'Confirmed')
+    .reduce((sum: number, row: { creditedAmount?: number; amount: number }) => sum + Math.round(Number(row.creditedAmount ?? row.amount) * 100), 0);
+  const available = Math.min(walletCents, depositCents + walletTotalCents);
+  if (!Number.isSafeInteger(available) || available < tier.price * 100) throw Error('Insufficient confirmed wallet funds.');
+  const payment = { sellerEmail: email, reason: tier.name + ' package purchase', createdAt: new Date().toISOString(), eventType: 'package-purchase' as const };
+  writeAll([
+    { ...payment, id: randomUUID(), accountType: 'wallet', amount: -tier.price, dedupeKey: 'package:' + id },
+    { ...payment, id: randomUUID(), accountType: 'guarantee', amount: tier.price, dedupeKey: 'package-grant:' + id },
+    ...rows,
+  ]);
+  return { tierId: id, spend: current.spend + tier.price, walletTotalCents: walletTotalCents - tier.price * 100 };
 }

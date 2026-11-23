@@ -227,6 +227,7 @@ export interface CommissionRecord {
 }
 
 export interface WalletTransaction {
+  reviewReason?: string;
   id: string;
   type: 'deposit' | 'withdrawal' | 'order_payout' | 'order_payment' | 'rebate';
   amount: number;
@@ -670,6 +671,16 @@ export async function syncApprovedRecharges(): Promise<void> {
     const response = await fetch(`/api/recharges?email=${encodeURIComponent(email)}`, { cache: 'no-store' });
     if (response.ok) {
       const data = await response.json();
+      if (email !== resolveSellerEmail()) return;
+      const known = new Set(getTransactions().map(tx => tx.id));
+      for (const row of data.recharges || []) {
+        const id = 'recharge-' + row.id;
+        if (row.status === 'Rejected' && !known.has(id)) {
+          addWalletTransaction({id, type:'deposit', amount:Number(row.amount), status:'rejected',
+            description:'Deposit ' + row.reference, reviewReason:row.reviewReason, createdAt:row.reviewedAt || row.submittedAt});
+          known.add(id);
+        }
+      }
       const approved = (data.recharges || []).filter((row: any) => row.status === 'Confirmed');
       const totalCents = approved.reduce(
         (sum: number, row: any) => sum + Math.round(Number(row.creditedAmount ?? row.amount) * 100),
@@ -706,6 +717,23 @@ export async function syncApprovedRecharges(): Promise<void> {
       (sum: number, row: any) => sum + Math.round(Number(row.amount || 0) * 100),
       0
     );
+    if (email !== resolveSellerEmail()) return;
+    const refunds = new Map<string, string>();
+    const prefix = 'withdrawal-refund:' + email + ':';
+    for (const row of walletAdjustments) {
+      if (row.eventType === 'withdrawal-refund' && row.dedupeKey?.startsWith(prefix))
+        refunds.set(row.dedupeKey.slice(prefix.length), row.reason);
+    }
+    const history = getTransactions();
+    const updated = history.map(tx => {
+      const reason = refunds.get(tx.id);
+      if (tx.type !== 'withdrawal' || !reason || (tx.status === 'rejected' && tx.reviewReason === reason)) return tx;
+      return { ...tx, status: 'rejected' as const, reviewReason: reason };
+    });
+    if (updated.some((tx, index) => tx !== history[index])) {
+      window.localStorage.setItem(sellerStorageKey(TRANSACTIONS_KEY), JSON.stringify(updated));
+      emitChange();
+    }
     applySyncedWalletAdjustmentTotalCents(totalCents);
     for (const row of walletAdjustments) {
       const id = `admin-wallet-adjustment-${row.id}`;

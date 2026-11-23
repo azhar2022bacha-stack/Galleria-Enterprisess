@@ -1,5 +1,6 @@
 'use client';
 
+import { RejectionReasonDialog } from './RejectionReasonDialog';
 import React, { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Search, CheckCircle2, XCircle } from 'lucide-react';
 import { sendSellerNotification } from '@/lib/sellerNotifications';
@@ -107,14 +108,14 @@ async function loadWithdrawalRecords(): Promise<WithdrawalRecord[]> {
   });
 }
 
-function saveWithdrawalStatus(item: WithdrawalRecord, status: 'completed' | 'rejected') {
+function saveWithdrawalStatus(item: WithdrawalRecord, status: 'completed' | 'rejected', reviewReason?: string) {
   if (typeof window === 'undefined') return;
   try {
     const raw = window.localStorage.getItem(item.storageKey);
     const transactions = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(transactions)) return;
     window.localStorage.setItem(item.storageKey, JSON.stringify(transactions.map((transaction: any) =>
-      transaction?.id === item.transactionId ? { ...transaction, status } : transaction
+      transaction?.id === item.transactionId ? { ...transaction, status, reviewReason } : transaction
     )));
     window.dispatchEvent(new Event('galleria:seller-orders-changed'));
     window.dispatchEvent(new Event('galleria:admin-todo-changed'));
@@ -216,7 +217,8 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
     }
   };
 
-  const handleRejectAndRefund = async (id: string) => {
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const handleRejectAndRefund = async (id: string, reason: string) => {
     const target = items.find((i) => i.id === id);
     if (!target || target.status !== 'pending' || processingWithdrawalId === id) return;
     setProcessingWithdrawalId(id);
@@ -229,19 +231,18 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
           accountType: 'wallet',
           eventType: 'withdrawal-refund',
           amount: target.amount,
-          reason: 'Withdrawal request rejected after review',
+          reason,
           dedupeKey: `withdrawal-refund:${target.id}`,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to return the withdrawal amount.');
     } catch (error: any) {
-      notify?.(error.message || 'Unable to return the withdrawal amount.');
-      return;
+      throw error;
     } finally {
       setProcessingWithdrawalId(null);
     }
-    saveWithdrawalStatus(target, 'rejected');
+    saveWithdrawalStatus(target, 'rejected', reason);
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'rejected' as const } : i))
     );
@@ -281,6 +282,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-6 sm:p-8 max-w-7xl mx-auto space-y-5 animate-fadeIn pb-12">
+      {rejectId && <RejectionReasonDialog kind="withdrawal" onCancel={()=>setRejectId(null)} onReject={reason=>handleRejectAndRefund(rejectId,reason)} />}
       {/* Top Header Bar matching screenshot */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 tracking-tight">
@@ -492,7 +494,7 @@ export function AdminWithdrawalsView({ notify }: AdminWithdrawalsViewProps) {
                           <button
                             type="button"
                             disabled={processingWithdrawalId === item.id}
-                            onClick={() => handleRejectAndRefund(item.id)}
+                            onClick={() => setRejectId(item.id)}
                             className="px-3.5 py-1.5 rounded-lg bg-[#dc2626] hover:bg-red-700 text-white text-xs font-semibold leading-tight text-center shadow-2xs transition-colors cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Reject &amp;<br />refund

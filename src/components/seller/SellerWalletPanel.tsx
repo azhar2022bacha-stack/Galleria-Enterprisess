@@ -614,7 +614,9 @@ export function SellerWalletPanel({
                         {tx.type.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-gray-700">{tx.description}</td>
+                    <td className="py-3 px-3 text-gray-700">{tx.description}
+                      {tx.status === 'rejected' && tx.reviewReason && <p className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-700"><strong>Reason:</strong> {tx.reviewReason}</p>}
+                    </td>
                     <td className="py-3 px-3">
                       <span
                         className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border ${

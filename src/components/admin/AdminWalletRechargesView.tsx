@@ -1,5 +1,6 @@
 'use client';
 
+import { RejectionReasonDialog } from './RejectionReasonDialog';
 import { createPortal } from 'react-dom';
 import React, { useState, useMemo, useEffect } from 'react';
 import { Search, X, Check, AlertCircle, ExternalLink, ArrowUpDown } from 'lucide-react';
@@ -85,9 +86,18 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
     try {const res=await fetch('/api/recharges',{cache:'no-store'});if(!res.ok)throw new Error('Unable to load recharges.');const data=await res.json();setRecharges(data.recharges);}catch(e:any){notify?.(e.message);}finally{setIsRefreshing(false);}
   };
   useEffect(()=>{handleRefresh();const timer=setInterval(handleRefresh,15_000);window.addEventListener('focus',handleRefresh);return()=>{clearInterval(timer);window.removeEventListener('focus',handleRefresh);};},[]);
-  const review = async(item:WalletRechargeItem,status:string,creditedAmount?:number)=>{try{const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'review',id:item.id,status,creditedAmount,sellerEmail:item.handle,rechargeReference:item.reference,requestedAmount:item.amount})});if(!res.ok)throw new Error('Unable to update recharge.');await handleRefresh();window.dispatchEvent(new Event('galleria:admin-todo-changed'));notify?.('Recharge '+status.toLowerCase()+'.');}catch(e:any){notify?.(e.message);}};
+  const [rejectItem, setRejectItem] = useState<WalletRechargeItem | null>(null);
+  const rejectRecharge = async (reason: string) => {
+    if (!rejectItem) return;
+    const response = await fetch('/api/recharges', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'review',id:rejectItem.id,status:'Rejected',reason})});
+    if (!response.ok) throw Error('Unable to reject this recharge. Refresh and try again.');
+    await handleRefresh();
+    window.dispatchEvent(new Event('galleria:admin-todo-changed'));
+    notify?.('Recharge rejected.');
+  };
   const handleConfirm=(item:WalletRechargeItem)=>{setConfirmRecharge(item);setCreditedUsd('');setConfirmError('');};
-  const handleReject=(item:WalletRechargeItem)=>review(item,'Rejected');
+
 
   const filteredRecharges = useMemo(() => {
     return recharges.filter((item) => {
@@ -105,6 +115,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
 
   return (
     <div className="max-w-7xl mx-auto animate-fadeIn pb-12">
+      {rejectItem && <RejectionReasonDialog kind="recharge" onCancel={()=>setRejectItem(null)} onReject={rejectRecharge} />}
       {confirmRecharge && typeof document!=='undefined' && createPortal(<div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4"><section role="dialog" aria-modal="true" aria-labelledby="confirm-recharge-title" className="bg-white rounded-lg shadow-xl border border-gray-200 p-5 w-full max-w-sm"><h2 id="confirm-recharge-title" className="text-sm font-semibold text-gray-900">Confirm this recharge?</h2><p className="text-xs text-gray-500 mt-2 leading-relaxed">This confirms the customer's recharge. Verify the transfer and payment screenshot first. You may override the credited USD below. Leave blank to use the requested amount ({confirmRecharge.amount.toFixed(2)} USD).</p><label htmlFor="credited-usd" className="block text-xs text-gray-500 mt-5 mb-1">Credited USD (optional)</label><input id="credited-usd" autoFocus type="number" min="0.01" step="0.01" value={creditedUsd} onChange={e=>setCreditedUsd(e.target.value)} placeholder={confirmRecharge.amount.toFixed(2)} className="w-full rounded border border-gray-300 p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none"/>{confirmError&&<p role="alert" className="text-xs text-red-600 mt-2">{confirmError}</p>}<div className="flex justify-end gap-2 mt-5"><button disabled={confirmBusy} onClick={()=>setConfirmRecharge(null)} className="px-3 py-1.5 border rounded text-xs text-gray-600">Cancel</button><button disabled={confirmBusy} onClick={async()=>{const amount=creditedUsd.trim()===''?confirmRecharge.amount:Number(creditedUsd);if(!Number.isFinite(amount)||amount<=0){setConfirmError('Enter a valid amount greater than zero.');return;}setConfirmBusy(true);try{const res=await fetch('/api/recharges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'review',id:confirmRecharge.id,status:'Confirmed',creditedAmount:amount,sellerEmail:confirmRecharge.handle,rechargeReference:confirmRecharge.reference,requestedAmount:confirmRecharge.amount})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to confirm recharge.');await handleRefresh();window.dispatchEvent(new Event('galleria:admin-todo-changed'));notify?.('Recharge confirmed.');setActiveStatus('All');setConfirmRecharge(null);}catch(e:any){setConfirmError(e.message);}finally{setConfirmBusy(false);}}} className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs disabled:opacity-50">{confirmBusy?'Confirming…':'Yes'}</button></div></section></div>,document.body)}
       {receiptPreview && typeof document!=='undefined' && createPortal(<div role="dialog" aria-modal="true" aria-label="Payment receipt" className="fixed inset-0 z-[100] bg-black/80 flex flex-col p-4" onClick={()=>setReceiptPreview(null)}><div className="flex items-center justify-between text-white mb-3"><span className="text-sm truncate">{receiptPreview.name}</span><button type="button" autoFocus aria-label="Close receipt" onClick={()=>setReceiptPreview(null)} className="p-2" onKeyDown={e=>{if(e.key==='Escape')setReceiptPreview(null);}}><X size={24}/></button></div><div className="flex-1 min-h-0 flex items-center justify-center overflow-auto"><img src={receiptPreview.url} alt="Uploaded payment receipt" className="max-w-full max-h-full object-contain bg-white rounded" onClick={e=>e.stopPropagation()}/></div></div>,document.body)}
       {/* Outer Card Container matching screenshot */}
@@ -242,7 +253,7 @@ export function AdminWalletRechargesView({ notify, initialStatus = 'Pending' }: 
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleReject(item)}
+                            onClick={() => setRejectItem(item)}
                             className="px-2.5 py-1 rounded-md text-xs font-semibold bg-red-600 border border-red-600 text-white hover:bg-red-700 transition-colors"
                           >
                             Reject

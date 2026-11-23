@@ -629,7 +629,7 @@ export function SellerWalletPanel({
                     <td className="py-3 px-4 text-gray-500">{formatDate(tx.createdAt)}</td>
                     <td className="py-3 px-3">
                       <span className="capitalize font-semibold text-gray-800">
-                        {tx.type.replace('_', ' ')}
+                        {tx.eventType === 'withdrawal-refund' ? 'Withdrawal refund' : tx.type.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-gray-700">{tx.description}
@@ -645,7 +645,7 @@ export function SellerWalletPanel({
                             : 'bg-rose-50 text-rose-700 border-rose-200'
                         }`}
                       >
-                        {tx.status}
+                        {tx.eventType === 'withdrawal-refund' ? 'Refunded' : tx.status}
                       </span>
                     </td>
                     <td

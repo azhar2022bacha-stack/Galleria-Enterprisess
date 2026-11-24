@@ -18,11 +18,45 @@ const formatDate = (iso: string) =>
     minute: '2-digit',
   });
 
+import { displayProductQuery } from '@/lib/productQueryBuyer';
+
+interface InventoryProduct {
+  id: string;
+  title: string;
+  image?: string;
+  pricePerKg: number;
+  category: string;
+  categorySlug?: string;
+  subcategory?: string;
+  sku: string;
+  stockBags: number;
+  minOrderKg: number;
+  status: string;
+}
+
+function QueryProduct({ query, product }: { query: ProductQuery; product?: InventoryProduct }) {
+  const image = product?.image || query.productImage;
+  const label = <>
+    {image && <img src={image} alt="" className="mb-1 h-14 w-14 rounded object-contain" />}
+    {product?.title || query.productName}
+  </>;
+  if (!product) return <span>{label}</span>;
+  const params = new URLSearchParams({ tab: 'storehouse', productId: product.id, category: product.categorySlug || '' });
+  return <div className="min-w-32 space-y-1">
+    <a className="font-semibold text-blue-700 hover:underline" href={'/seller/dashboard?' + params}>{label}</a>
+    {product.pricePerKg != null && <div>USD {Number(product.pricePerKg).toFixed(2)}</div>}
+    <div>{[product.category, product.subcategory, product.sku, product.status].filter(Boolean).join(' · ')}</div>
+    {product.stockBags != null && <div>Stock: {product.stockBags}</div>}
+    {product.minOrderKg != null && <div>Minimum order: {product.minOrderKg}</div>}
+  </div>;
+}
+
 interface SellerQueriesPanelProps {
+  products: InventoryProduct[];
   notify?: (msg: string) => void;
 }
 
-export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
+export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps) {
   const [queries, setQueries] = useState<ProductQuery[]>([]);
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
   const [replyInput, setReplyInput] = useState('');
@@ -39,7 +73,7 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
         const serverQueries = Array.isArray(data.queries) ? (data.queries as ProductQuery[]) : [];
         const uniqueQueries = new Map<string, ProductQuery>();
         [...serverQueries, ...localQueries].forEach((query) => {
-          if (!uniqueQueries.has(query.id)) uniqueQueries.set(query.id, query);
+          if (!uniqueQueries.has(query.id)) uniqueQueries.set(query.id, displayProductQuery(query));
         });
         if (active) {
           setQueries(Array.from(uniqueQueries.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
@@ -87,7 +121,7 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
         if (!response.ok || !data?.success || !data.query) {
           throw new Error(data?.error || 'Unable to send the reply. Please try again.');
         }
-        setQueries((current) => current.map((query) => query.id === activeReplyId ? data.query : query));
+        setQueries((current) => current.map((query) => query.id === activeReplyId ? displayProductQuery(data.query) : query));
       } else {
         replyToQuery(activeReplyId, replyInput.trim());
         setQueries(getProductQueries());
@@ -155,7 +189,7 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
                   <tr key={item.id || idx} className="hover:bg-gray-50/60 transition-colors">
                     <td className="py-4 px-5 font-semibold text-gray-500">{idx + 1}</td>
                     <td className="py-4 px-5 font-semibold text-gray-800">{item.userName}</td>
-                    <td className="py-4 px-5 text-gray-700 max-w-[160px] truncate">{item.productName}</td>
+                    <td className="py-4 px-5 text-gray-700 max-w-[220px]"><QueryProduct query={item} product={products.find(product => product.id === item.productId)} /></td>
                     <td className="py-4 px-5 text-gray-800 max-w-[240px]">
                       {item.subject && <div className="mb-0.5 truncate text-[10px] font-semibold text-gray-500">{item.subject}</div>}
                       <div className="line-clamp-3 whitespace-pre-wrap">{item.question}</div>
@@ -203,7 +237,7 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 animate-slideUp relative"
+            className="max-h-[90vh] overflow-y-auto w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 animate-slideUp relative"
           >
             <button
               onClick={() => setActiveReplyId(null)}
@@ -218,14 +252,14 @@ export function SellerQueriesPanel({ notify }: SellerQueriesPanelProps) {
               </div>
               <div>
                 <h3 className="font-bold text-base text-gray-900">Reply to Product Query</h3>
-                <p className="text-[11px] text-gray-500">From {selectedQuery.source === 'admin-consign' ? 'Admin' : selectedQuery.userName}</p>
+                <p className="text-[11px] text-gray-500">From {selectedQuery.userName}</p>
               </div>
             </div>
 
             <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-100 space-y-2 mb-4 text-xs">
               <div>
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Product</span>
-                <p className="font-semibold text-gray-800">{selectedQuery.productName}</p>
+                <QueryProduct query={selectedQuery} product={products.find(product => product.id === selectedQuery.productId)} />
               </div>
               {selectedQuery.orderCode && (
                 <div>

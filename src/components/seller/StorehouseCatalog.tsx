@@ -243,6 +243,37 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
   const [modalProduct, setModalProduct] = useState<DemoProduct | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const [linkedProductError, setLinkedProductError] = useState('');
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('productId');
+    if (!id) return;
+    let active = true;
+    const loadListing = async () => {
+      const category = params.get('category');
+      const local = getProductById(id);
+      let listing = local?.id === id ? local : null;
+      if (category) {
+        const catalog = await requestStorehouseCategory(category).catch((error) => {
+          if (!listing) throw error;
+          return null;
+        });
+        listing = catalog?.products.find(item => item.id === id) || listing;
+      }
+      if (!active) return;
+      if (listing) {
+        setModalProduct(listing);
+        setIsModalOpen(true);
+      } else {
+        setLinkedProductError('This product is no longer available in the Storehouse.');
+      }
+    };
+    void loadListing().catch(() => {
+      if (active) setLinkedProductError('Unable to load this Storehouse listing. Please refresh to try again.');
+    });
+    return () => { active = false; };
+  }, []);
+
   // Direct Product Selection state (PRD Option 2)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
 
@@ -1645,6 +1676,7 @@ export const StorehouseCatalog: React.FC<StorehouseCatalogProps> = ({
       {/* ===================================================================== */}
       {/* 7. PRODUCT DETAIL MODAL DIALOG                                         */}
       {/* ===================================================================== */}
+      {linkedProductError && <p role="alert" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-white p-4 text-sm shadow-lg">{linkedProductError}</p>}
       <ProductDetailModal
         product={modalProduct}
         isOpen={isModalOpen}

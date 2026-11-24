@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MessageSquare, X } from 'lucide-react';
 import {
   ProductQuery,
@@ -57,7 +57,8 @@ interface SellerQueriesPanelProps {
 }
 
 export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps) {
-  const [queries, setQueries] = useState<ProductQuery[]>([]);
+  const [rawQueries, setQueries] = useState<ProductQuery[]>([]);
+  const queries = useMemo(() => rawQueries.map(displayProductQuery), [rawQueries]);
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
   const [replyInput, setReplyInput] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -73,7 +74,7 @@ export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps
         const serverQueries = Array.isArray(data.queries) ? (data.queries as ProductQuery[]) : [];
         const uniqueQueries = new Map<string, ProductQuery>();
         [...serverQueries, ...localQueries].forEach((query) => {
-          if (!uniqueQueries.has(query.id)) uniqueQueries.set(query.id, displayProductQuery(query));
+          if (!uniqueQueries.has(query.id)) uniqueQueries.set(query.id, query);
         });
         if (active) {
           setQueries(Array.from(uniqueQueries.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
@@ -121,7 +122,7 @@ export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps
         if (!response.ok || !data?.success || !data.query) {
           throw new Error(data?.error || 'Unable to send the reply. Please try again.');
         }
-        setQueries((current) => current.map((query) => query.id === activeReplyId ? displayProductQuery(data.query) : query));
+        setQueries((current) => current.map((query) => query.id === activeReplyId ? data.query : query));
       } else {
         replyToQuery(activeReplyId, replyInput.trim());
         setQueries(getProductQueries());

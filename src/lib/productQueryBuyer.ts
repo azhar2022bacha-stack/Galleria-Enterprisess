@@ -5,6 +5,8 @@ export function buyerAttribution(name: string) {
 }
 
 export function displayProductQuery(query: ProductQuery): ProductQuery {
-  const match = query.source === 'admin-consign' && /^On behalf of: ([^\r\n]+)\n\n/.exec(query.question);
-  return match ? { ...query, userName: match[1], question: query.question.slice(match[0].length) } : query;
+  if (query.source !== 'admin-consign' && query.userName !== 'Admin') return query;
+  const match = /^On behalf of:[ \t]*([^\r\n]+)\r?\n(?:[ \t]*\r?\n)*/.exec(query.question);
+  const buyer = match?.[1].trim();
+  return match && buyer ? { ...query, userName: buyer, question: query.question.slice(match[0].length) } : query;
 }

@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "node scripts/ensure-local-postgres.mjs",
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build.mjs",
     "prestart": "node scripts/ensure-local-postgres.mjs",
     "start": "next start",
     "lint": "next lint",

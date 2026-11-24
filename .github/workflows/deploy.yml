@@ -28,5 +28,5 @@ jobs:
             git merge --no-edit FETCH_HEAD
             git merge-base --is-ancestor "${{ github.sha }}" HEAD
             npm install
-            npm run build
-            pm2 restart nextjs-app
+            GALLERIA_DEPLOY_LOCK_HELD=1 npm run build
+            pm2 restart nextjs-app --update-env 9>&-

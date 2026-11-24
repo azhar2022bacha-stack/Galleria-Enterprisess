@@ -57,40 +57,59 @@ interface SellerQueriesPanelProps {
 }
 
 export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps) {
-  const [rawQueries, setQueries] = useState<ProductQuery[]>([]);
-  const queries = useMemo(() => rawQueries.map(displayProductQuery), [rawQueries]);
+  const [serverQueries, setServerQueries] = useState<ProductQuery[]>([]);
+  const [localQueries, setLocalQueries] = useState<ProductQuery[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const queries = useMemo(() => {
+    const byId = new Map<string, ProductQuery>();
+    for (const query of [...serverQueries, ...localQueries]) {
+      if (!byId.has(query.id)) byId.set(query.id, displayProductQuery(query));
+    }
+    return Array.from(byId.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [serverQueries, localQueries]);
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
   const [replyInput, setReplyInput] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
+    let refreshing = false;
     const refresh = async () => {
-      const localQueries = getProductQueries();
+      if (refreshing || controller.signal.aborted) return;
+      refreshing = true;
+      setLocalQueries(getProductQueries().filter(query => query.source !== 'admin-consign'));
       try {
-        const response = await fetch('/api/consign/product-queries', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Unable to load saved product queries.');
-        const data = await response.json();
-        const serverQueries = Array.isArray(data.queries) ? (data.queries as ProductQuery[]) : [];
-        const uniqueQueries = new Map<string, ProductQuery>();
-        [...serverQueries, ...localQueries].forEach((query) => {
-          if (!uniqueQueries.has(query.id)) uniqueQueries.set(query.id, query);
+        const response = await fetch('/api/consign/product-queries', {
+          cache: 'no-store',
+          signal: controller.signal,
         });
-        if (active) {
-          setQueries(Array.from(uniqueQueries.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+        if (controller.signal.aborted) return;
+        if (response.status === 401) {
+          setServerQueries([]);
+          setLoadError('Sign in to your seller account again to receive product queries.');
+          return;
+        }
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        if (!data.success || !Array.isArray(data.queries)) throw new Error();
+        if (!controller.signal.aborted) {
+          setServerQueries(data.queries);
+          setLoadError('');
         }
       } catch {
-        if (active) setQueries(localQueries);
+        if (!controller.signal.aborted) setLoadError('Unable to refresh product queries. Retrying automatically.');
+      } finally {
+        refreshing = false;
       }
     };
 
     const refreshQueries = () => void refresh();
     void refresh();
     const unsubscribe = subscribeToOrders(refreshQueries);
-    const intervalId = window.setInterval(refreshQueries, 15_000);
+    const intervalId = window.setInterval(refreshQueries, 5_000);
     window.addEventListener('focus', refreshQueries);
     return () => {
-      active = false;
+      controller.abort();
       unsubscribe();
       window.clearInterval(intervalId);
       window.removeEventListener('focus', refreshQueries);
@@ -122,10 +141,10 @@ export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps
         if (!response.ok || !data?.success || !data.query) {
           throw new Error(data?.error || 'Unable to send the reply. Please try again.');
         }
-        setQueries((current) => current.map((query) => query.id === activeReplyId ? data.query : query));
+        setServerQueries((current) => current.map((query) => query.id === activeReplyId ? data.query : query));
       } else {
         replyToQuery(activeReplyId, replyInput.trim());
-        setQueries(getProductQueries());
+        setLocalQueries(getProductQueries().filter(query => query.source !== 'admin-consign'));
       }
       notify?.('Reply sent successfully.');
       setActiveReplyId(null);
@@ -159,6 +178,8 @@ export function SellerQueriesPanel({ notify, products }: SellerQueriesPanelProps
           </span>
         </div>
       </div>
+
+      {loadError && <p role="alert" className="mt-4 text-sm text-amber-700">{loadError}</p>}
 
       {/* Table Card matching screenshot */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mt-6">

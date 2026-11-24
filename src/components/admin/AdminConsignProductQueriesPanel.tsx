@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowUpDown, CheckCircle2, Clock3, MessageSquare, Search, Send, Sparkles, X } from 'lucide-react';
 import type { ProductQuery } from '@/lib/sellerOrders';
 
-import { COUNTRY_SHOPPERS, COUNTRY_TABS, type ShopperCountry } from '@/data/countryShoppers';
+import { COUNTRY_SHOPPERS, COUNTRY_TABS, TOTAL_SHOPPERS_COUNT, type ShopperCountry } from '@/data/countryShoppers';
 import { displayProductQuery, buyerAttribution } from '@/lib/productQueryBuyer';
 
 interface QuerySeller {
@@ -109,7 +109,15 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
   const [customProductName, setCustomProductName] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [country, setCountry] = useState<ShopperCountry>('Pakistan');
-  const [buyerId, setBuyerId] = useState('');
+  const [buyerId, setBuyerId] = useState(COUNTRY_SHOPPERS.Pakistan[0]?.id || '');
+  const [shopperSearch, setShopperSearch] = useState('');
+  const shoppers = COUNTRY_SHOPPERS[country];
+  const filteredShoppers = useMemo(() => {
+    const term = shopperSearch.trim().toLowerCase();
+    return shoppers.filter(shopper =>
+      [shopper.name, shopper.email, '#' + shopper.number].some(value => value.toLowerCase().includes(term))
+    );
+  }, [shoppers, shopperSearch]);
   const buyer = COUNTRY_SHOPPERS[country].find(item => item.id === buyerId);
   const attribution = buyer ? buyerAttribution(buyer.name) : '';
   const questionLimit = 3000 - attribution.length;
@@ -386,21 +394,6 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
             </label>
 
             <label className="text-xs font-medium text-gray-700">
-              Buyer country
-              <select value={country} onChange={event => { setCountry(event.target.value as ShopperCountry); setBuyerId(''); }}
-                className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm">
-                {COUNTRY_TABS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
-              </select>
-            </label>
-            <label className="text-xs font-medium text-gray-700">
-              Buyer <span className="text-red-500">*</span>
-              <select required value={buyerId} onChange={event => setBuyerId(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm">
-                <option value="" disabled>Select a buyer</option>
-                {COUNTRY_SHOPPERS[country].map(shopper => <option key={shopper.id} value={shopper.id}>{shopper.name} · #{shopper.number}</option>)}
-              </select>
-            </label>
-            <label className="text-xs font-medium text-gray-700">
               Product <span className="text-red-500">*</span>
               <select
                 value={selectedProductId}
@@ -437,6 +430,44 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
               </select>
             </label>
           </div>
+
+          <fieldset className="mt-4 space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+            <legend className="sr-only">Select a shopper</legend>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+              <div><strong className="text-sm text-gray-900">Shopper</strong> · {TOTAL_SHOPPERS_COUNT.toLocaleString('en-US')} available (1,000 per country)</div>
+              <div>Selected: <strong className="text-blue-700">{buyer ? '1 shopper' : '0 shoppers'}</strong>{buyer && ' · ' + buyer.name}</div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
+              {COUNTRY_TABS.map(tab => (
+                <button key={tab.key} type="button" aria-pressed={country === tab.key}
+                  onClick={() => {
+                    if (country === tab.key) return;
+                    setCountry(tab.key);
+                    setBuyerId(COUNTRY_SHOPPERS[tab.key][0]?.id || '');
+                    setShopperSearch('');
+                  }}
+                  className={'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ' + (country === tab.key ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                  {tab.flag} {tab.label}
+                  <span className="rounded-full bg-gray-100 px-1.5 text-gray-700">{COUNTRY_SHOPPERS[tab.key].length.toLocaleString('en-US')}</span>
+                </button>
+              ))}
+            </div>
+            <input type="search" aria-label="Search shoppers" placeholder={'Search ' + country + ' shoppers by name, email or number'}
+              value={shopperSearch} onChange={event => setShopperSearch(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            {filteredShoppers.length ? (
+              <select aria-label={'Choose a shopper from ' + country} size={5}
+                value={filteredShoppers.some(shopper => shopper.id === buyerId) ? buyerId : ''}
+                onChange={event => setBuyerId(event.target.value)}
+                className="w-full rounded-lg border border-gray-200 text-sm">
+                {filteredShoppers.map(shopper => (
+                  <option key={shopper.id} value={shopper.id} className="px-3 py-1">
+                    #{shopper.number} · {shopper.name} — {shopper.email}
+                  </option>
+                ))}
+              </select>
+            ) : <p className="text-sm text-gray-500">No shoppers match your search in {country}.</p>}
+          </fieldset>
 
           {selectedProductId === '__custom' && (
             <label className="mt-3 block text-xs font-medium text-gray-700">

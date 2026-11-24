@@ -4,6 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowUpDown, CheckCircle2, Clock3, MessageSquare, Search, Send, Sparkles, X } from 'lucide-react';
 import type { ProductQuery } from '@/lib/sellerOrders';
 
+import { COUNTRY_SHOPPERS, COUNTRY_TABS, type ShopperCountry } from '@/data/countryShoppers';
+import { displayProductQuery, buyerAttribution } from '@/lib/productQueryBuyer';
+
 interface QuerySeller {
   id: string;
   name: string;
@@ -105,6 +108,11 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
   const [sellerProducts, setSellerProducts] = useState<{ email: string; products: unknown[] }>();
   const [customProductName, setCustomProductName] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [country, setCountry] = useState<ShopperCountry>('Pakistan');
+  const [buyerId, setBuyerId] = useState('');
+  const buyer = COUNTRY_SHOPPERS[country].find(item => item.id === buyerId);
+  const attribution = buyer ? buyerAttribution(buyer.name) : '';
+  const questionLimit = 3000 - attribution.length;
   const [topic, setTopic] = useState(QUERY_TOPICS[0]);
   const [subject, setSubject] = useState('');
   const [question, setQuestion] = useState('');
@@ -167,29 +175,20 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
       const normalized = normalizeProduct(product, `seller-product-${index}`);
       if (normalized) choices.push(normalized);
     });
-    sellerOrders.forEach((order) => {
-      const products = Array.isArray(order.products) && order.products.length > 0
-        ? order.products
-        : [{ id: order.id, title: order.itemTitle }];
-      products.forEach((product, index) => {
-        const normalized = normalizeProduct(product, `${order.id}-product-${index}`);
-        if (normalized) choices.push(normalized);
-      });
-    });
     const unique = new Map<string, ProductChoice>();
     choices.forEach((product) => {
-      const key = product.id.toLowerCase() || product.name.toLowerCase();
+      const key = product.id;
       if (!unique.has(key)) unique.set(key, product);
     });
     return Array.from(unique.values());
-  }, [selectedSeller, sellerOrders, sellerProducts]);
+  }, [selectedSeller, sellerProducts]);
 
   const selectedProduct = productChoices.find((product) => product.id === selectedProductId);
   const selectedOrder = sellerOrders.find((order) => order.id === selectedOrderId);
 
   useEffect(() => {
-    if (!productChoices.some((product) => product.id === selectedProductId)) {
-      setSelectedProductId(productChoices[0]?.id || '__custom');
+    if (selectedProductId !== '__custom' && !productChoices.some((product) => product.id === selectedProductId)) {
+      setSelectedProductId(productChoices[0]?.id || '');
     }
   }, [productChoices, selectedProductId]);
 
@@ -203,7 +202,7 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
           throw new Error(data?.error || 'Unable to load product queries.');
         }
         if (active) {
-          setQueries(data.queries);
+          setQueries(data.queries.map(displayProductQuery));
           setLoadError('');
           setIsLoading(false);
         }
@@ -295,6 +294,10 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
       setFormError('Choose a seller account before sending a query.');
       return;
     }
+    if (!buyer || question.trim().length > questionLimit) {
+      setFormError(!buyer ? 'Choose a buyer.' : 'Please shorten your question to fit the character limit.');
+      return;
+    }
     const productName = selectedProductId === '__custom' ? customProductName.trim() : selectedProduct?.name || '';
     if (!productName || !subject.trim() || !question.trim()) {
       setFormError('Choose or enter a product, add a subject, and write your question.');
@@ -316,14 +319,14 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
           ...(selectedOrder ? { orderId: selectedOrder.id, orderCode: selectedOrder.orderNumber } : {}),
           topic,
           subject: subject.trim(),
-          question: question.trim(),
+          question: attribution + question.trim(),
         }),
       });
       const data = await response.json();
       if (!response.ok || !data?.success || !data.query) {
         throw new Error(data?.error || 'Unable to send the product query.');
       }
-      setQueries((current) => [data.query, ...current.filter((query) => query.id !== data.query.id)]);
+      setQueries((current) => [displayProductQuery(data.query), ...current.filter((query) => query.id !== data.query.id)]);
       setSubject('');
       setQuestion('');
       notify?.(`Product query sent to ${selectedSeller.name}.`);
@@ -383,6 +386,21 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
             </label>
 
             <label className="text-xs font-medium text-gray-700">
+              Buyer country
+              <select value={country} onChange={event => { setCountry(event.target.value as ShopperCountry); setBuyerId(''); }}
+                className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+                {COUNTRY_TABS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-gray-700">
+              Buyer <span className="text-red-500">*</span>
+              <select required value={buyerId} onChange={event => setBuyerId(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+                <option value="" disabled>Select a buyer</option>
+                {COUNTRY_SHOPPERS[country].map(shopper => <option key={shopper.id} value={shopper.id}>{shopper.name} · #{shopper.number}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-gray-700">
               Product <span className="text-red-500">*</span>
               <select
                 value={selectedProductId}
@@ -390,6 +408,7 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
                 className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 required
               >
+                <option value="" disabled>Select a product</option>
                 {productChoices.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
                 <option value="__custom">Other / enter product name</option>
               </select>
@@ -450,13 +469,13 @@ export function AdminConsignProductQueriesPanel({ merchants, orders, notify }: A
               <textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
-                maxLength={3000}
+                maxLength={questionLimit}
                 rows={3}
                 placeholder="Write the product question or details you need the seller to confirm..."
                 className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 required
               />
-              <span className="mt-1 block text-right text-[10px] font-normal text-gray-400">{question.length}/3000</span>
+              <span className="mt-1 block text-right text-[10px] font-normal text-gray-400">{question.length}/{questionLimit}</span>
             </label>
           </div>
 

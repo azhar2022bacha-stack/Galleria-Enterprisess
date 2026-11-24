@@ -333,6 +333,10 @@ export default function SellerDashboardPage() {
       const url = new URL(window.location.href);
       if (url.searchParams.get('tab') !== activeNav) {
         url.searchParams.set('tab', activeNav);
+        if (url.searchParams.has('productId')) {
+          url.searchParams.delete('productId');
+          url.searchParams.delete('category');
+        }
         window.history.replaceState({}, '', url.toString());
       }
     }
@@ -1858,7 +1862,7 @@ export default function SellerDashboardPage() {
           {activeNav === 'disputes' && <SellerDisputesPanel />}
 
           {/* ======================= VIEW 9: PRODUCT QUERIES ======================= */}
-          {activeNav === 'queries' && <SellerQueriesPanel notify={notify} />}
+          {activeNav === 'queries' && <SellerQueriesPanel products={products} notify={notify} />}
 
           {/* ======================= VIEW 9: PACKAGE · TIER ======================= */}
           {activeNav === 'package' && (

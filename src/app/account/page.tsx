@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   User,
-  MapPin,
   Store,
   ShieldAlert,
   CheckCircle,
@@ -278,7 +277,7 @@ function AccountContent() {
                 {/* Orders (8 cols) */}
                 <div className="lg:col-span-8"><OrderLookupPanel /></div>
 
-                {/* Right Column: Shortcuts & Address (4 cols) */}
+                {/* Right Column: Shortcuts (4 cols) */}
                 <div className="lg:col-span-4 space-y-6">
                   <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-3">
                     <h3 className="font-serif text-sm font-bold text-[#0c1b33] mb-2">Buyer Shortcuts</h3>
@@ -298,22 +297,6 @@ function AccountContent() {
                       <span>Active Shopping Cart</span>
                       <ChevronRight className="w-4 h-4 text-gray-400" />
                     </Link>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-serif text-sm font-bold text-[#0c1b33] flex items-center gap-1.5">
-                        <MapPin className="w-4 h-4 text-[#c5a059]" />
-                        <span>Default Address</span>
-                      </h3>
-                      <span className="text-[10px] font-bold text-[#c5a059] uppercase">Primary</span>
-                    </div>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <p className="font-semibold text-gray-900">Azhar Uddin Khan</p>
-                      <p>123 Park Avenue, Apt 4B</p>
-                      <p>New York, NY 10001</p>
-                      <p>United States</p>
-                    </div>
                   </div>
                 </div>
 

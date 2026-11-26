@@ -62,6 +62,7 @@ const AdminPriceListsView = dynamic(() => import('@/components/admin/AdminPriceL
 const AdminProductUpdateView = dynamic(() => import('@/components/admin/AdminProductUpdateView').then((m) => m.AdminProductUpdateView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminStoreCategoriesView = dynamic(() => import('@/components/admin/AdminStoreCategoriesView').then((m) => m.AdminStoreCategoriesView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminTodoView = dynamic(() => import('@/components/admin/AdminTodoView').then((m) => m.AdminTodoView), { ssr: false, loading: () => <ViewSkeleton /> });
+const AdminUpdateAmountView = dynamic(() => import('@/components/admin/AdminUpdateAmountView'), { ssr: false, loading: () => <ViewSkeleton /> });
 const SellerRecoveryView = dynamic(() => import('@/components/admin/SellerRecoveryView'), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminManualPaymentView = dynamic(() => import('@/components/admin/AdminManualPaymentView').then((m) => m.AdminManualPaymentView), { ssr: false, loading: () => <ViewSkeleton /> });
 const AdminStoreExposureView = dynamic(() => import('@/components/admin/AdminStoreExposureView').then((m) => m.AdminStoreExposureView), { ssr: false, loading: () => <ViewSkeleton /> });
@@ -118,6 +119,7 @@ const ADMIN_PANEL_BY_TAB: Partial<Record<AdminTab, unknown>> = {
   store_exposure: AdminStoreExposureView,
   manual_payment: AdminManualPaymentView,
   seller_recovery: SellerRecoveryView,
+  update_amount: AdminUpdateAmountView,
   audit_log: AdminAuditLogView,
   accounts: AdminAccountsView,
   consign: AdminConsignView,
@@ -487,6 +489,8 @@ export default function AdminPage() {
         return 'Confirm Order by Seller';
       case 'store_exposure':
         return 'Store Visitors & Exposure';
+      case 'update_amount':
+        return 'Update Amount';
       case 'seller_recovery':
         return 'Seller Account Recovery';
       case 'manual_payment':
@@ -689,6 +693,8 @@ export default function AdminPage() {
             />
           ) : activeTab === 'store_exposure' ? (
             <AdminStoreExposureView />
+          ) : activeTab === 'update_amount' ? (
+            <AdminUpdateAmountView />
           ) : activeTab === 'seller_recovery' ? (
             <SellerRecoveryView />
           ) : activeTab === 'manual_payment' ? (

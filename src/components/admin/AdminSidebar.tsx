@@ -50,6 +50,7 @@ export type AdminTab =
   | 'store_exposure'
   | 'manual_payment'
   | 'seller_recovery'
+  | 'update_amount'
   | 'audit_log'
   | 'accounts'
   | 'consign'
@@ -205,6 +206,7 @@ export function AdminSidebar({
     { id: 'store_exposure', label: 'Store Visitors & Exposure', iconType: 'bag' },
     { id: 'manual_payment', label: 'Manual Payment', iconType: 'dollar' },
     { id: 'seller_recovery', label: 'Seller Account Recovery', iconType: 'shield' },
+    { id: 'update_amount', label: 'Update Amount', iconType: 'dollar' },
     { id: 'audit_log', label: 'Audit log', iconType: 'grid' },
     { id: 'accounts', label: 'Accounts', iconType: 'grid' },
     { id: 'consign', label: 'Consign', iconType: 'shield' },

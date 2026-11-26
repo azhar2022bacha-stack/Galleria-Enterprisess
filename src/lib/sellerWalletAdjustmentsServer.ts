@@ -27,12 +27,14 @@ export interface SellerWalletAdjustment {
 
 const FILE = path.join(process.cwd(), 'src', 'data', 'seller_wallet_adjustments.json');
 
-function readAll(): SellerWalletAdjustment[] {
+function readAll(strict = false): SellerWalletAdjustment[] {
   try {
     if (!fs.existsSync(FILE)) return [];
     const parsed = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    if (!Array.isArray(parsed) && strict) throw new Error('Invalid wallet ledger.');
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -144,9 +146,17 @@ export function purchaseSellerPackage(email: string, id: PackageTierId, walletCe
 function confirmedDeposits(email: string): number {
   const depositsFile = path.join(path.dirname(FILE), 'wallet_recharges.json');
   const deposits = fs.existsSync(depositsFile) ? JSON.parse(fs.readFileSync(depositsFile, 'utf8')) : [];
-  const depositCents = deposits.filter((row: { handle: string; status: string }) => row.handle === email && row.status === 'Confirmed')
+  const depositCents = deposits.filter((row: { handle: string; status: string }) => row.handle?.trim().toLowerCase() === email && row.status === 'Confirmed')
     .reduce((sum: number, row: { creditedAmount?: number; amount: number }) => sum + Math.round(Number(row.creditedAmount ?? row.amount) * 100), 0);
   return depositCents;
+}
+
+export function availableSellerWalletCents(email: string): number {
+  const key = email.trim().toLowerCase();
+  const wallet = readAll(true).filter(row => row.accountType === 'wallet' && row.sellerEmail.trim().toLowerCase() === key);
+  const balance = confirmedDeposits(key) + sellerWalletAdjustmentCents(wallet);
+  if (!Number.isSafeInteger(balance)) throw new Error('Invalid wallet balance.');
+  return balance;
 }
 
 export class WithdrawalError extends Error {}

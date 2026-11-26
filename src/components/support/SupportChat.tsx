@@ -1,5 +1,6 @@
 'use client';
 
+import { clearAdminSupportPreview, readAdminSupportPreview, saveAdminSupportPreview } from '@/lib/adminSupportPreview';
 import dynamic from 'next/dynamic';
 import { ProfilePhotoEditor } from './ProfilePhotoEditor';
 import { ImageComposer } from './ImageComposer';
@@ -23,7 +24,7 @@ function VoicePlayer({ url, id, photo, name }: { url: string; id: string; photo?
  <div className="flex-1 min-w-0"><div className="relative h-8 flex items-center gap-[2px] overflow-hidden">{(peaks.length?peaks:Array(48).fill(3)).map((height,i)=><span key={i} className={`w-[3px] shrink-0 rounded-full ${heard?'bg-emerald-500':i/48<=time/(duration||1)?'bg-sky-400':'bg-gray-400'}`} style={{height}}/>)}<input aria-label="Seek voice message" type="range" min="0" max={duration||1} step="0.01" value={Math.min(time,duration||1)} onChange={e=>{if(audio.current)audio.current.currentTime=Number(e.target.value);setTime(Number(e.target.value));}} className="absolute inset-0 w-full opacity-0 cursor-pointer"/></div><span className="text-[10px] text-gray-500">{clock(time||duration)}</span></div>
  <button aria-label="Playback speed" onClick={()=>{const n=speed===1?1.5:speed===1.5?2:1;setSpeed(n);if(audio.current)audio.current.playbackRate=n;}} className="rounded-full bg-gray-500 text-white px-2 py-0.5 text-[11px] font-semibold">{speed}×</button></div></div>;
 }
-export function SupportChat({ admin = false }: { admin?: boolean }) {
+export function SupportChat({ admin = false, previewOwner = '' }: { admin?: boolean; previewOwner?: string }) {
  const [draftImage,setDraftImage] = useState<Attachment | null>(null);
  const [viewer, setViewer] = useState<Attachment | null>(null); const [zoom,setZoom] = useState(1);
  const [voiceMenu, setVoiceMenu] = useState<string | null>(null);
@@ -62,7 +63,17 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
    };
  }, [admin, fullScreen]);
  const [identity, setIdentity] = useState({ email: '', name: '' });
- const [chats,setChats] = useState<Chat[]>([]); const [selected,setSelected] = useState('');
+ const [initialChats] = useState(() => admin ? readAdminSupportPreview(previewOwner) : undefined);
+ const [chats,setChats] = useState<Chat[]>(initialChats || []);
+ const [selected,setSelected] = useState(() => {
+   if (initialChats) {
+     try {
+       const saved = sessionStorage.getItem('admin_support_selected_chat');
+       if (saved && initialChats.some(chat => chat.email === saved)) return saved;
+     } catch {}
+   }
+   return '';
+ });
  const [text,setText] = useState(''); const [search,setSearch] = useState(''); const [messageSearch,setMessageSearch] = useState('');
  const [error,setError] = useState(''); const [busy,setBusy] = useState(false); const [emojis,setEmojis] = useState(false);
  const [attachment,setAttachment] = useState<Attachment | null>(null); const [editing,setEditing] = useState<string | null>(null); const [reply,setReply] = useState('');
@@ -72,9 +83,10 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  useEffect(()=>{if(admin)return;const withdrawalDraft=sessionStorage.getItem('seller_support_withdrawal_draft');const shouldAutoSendWithdrawal=sessionStorage.getItem('seller_support_withdrawal_autosend')==='1';if(withdrawalDraft&&shouldAutoSendWithdrawal)return;const draft=withdrawalDraft||sessionStorage.getItem('seller_support_deposit_draft');if(draft){setText(draft);sessionStorage.removeItem('seller_support_withdrawal_draft');sessionStorage.removeItem('seller_support_deposit_draft');}},[admin]);
  const [recording,setRecording] = useState(false); const recorder = useRef<MediaRecorder | null>(null); const stream = useRef<MediaStream | null>(null);
  const input = useRef<HTMLInputElement>(null); const bottom = useRef<HTMLDivElement>(null); const role = admin ? 'admin' : 'seller';
- const [inboxLoaded, setInboxLoaded] = useState(false);
+ const [inboxLoaded, setInboxLoaded] = useState(initialChats !== undefined);
  const [inboxError, setInboxError] = useState('');
  const restoreConversation = useRef(true);
+ const [showingPreview, setShowingPreview] = useState(initialChats !== undefined);
  const latestInboxRequest = useRef(0);
  useEffect(() => {
    if (!admin) {
@@ -93,6 +105,13 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
    try {
      const query = admin ? '?summary=0' : '?email=' + encodeURIComponent(identity.email);
      const res = await fetch('/api/support' + query, { cache: 'no-store' });
+     if (admin && request === latestInboxRequest.current && (res.status === 401 || res.status === 403)) {
+       clearAdminSupportPreview();
+       setChats([]);
+       setProfiles({});
+       setSelected('');
+       setInboxLoaded(false);
+     }
      if (!res.ok) throw new Error();
      const data = await res.json();
      if (admin && request !== latestInboxRequest.current) return;
@@ -101,13 +120,15 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
      setChats(loaded);
      setProfiles(data.profiles || {});
      if (admin) {
+       setShowingPreview(false);
+       saveAdminSupportPreview(previewOwner, loaded);
        setInboxLoaded(true);
        setInboxError('');
        if (restoreConversation.current) {
          restoreConversation.current = false;
          try {
            const saved = sessionStorage.getItem('admin_support_selected_chat');
-           if (saved && loaded.some(c => c.email === saved)) setSelected(saved);
+           setSelected(saved && loaded.some(c => c.email === saved) ? saved : '');
          } catch {}
        }
      }
@@ -260,7 +281,7 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  <a className="px-3 py-2 hover:bg-gray-50 flex gap-2" href={m.attachment.url} download={m.attachment.name||'voice-message.webm'} onClick={()=>setVoiceMenu(null)}><Download size={14}/>Download</a>
  <button className="w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600 flex gap-2" onClick={()=>{setDeleteTarget(m.id);setVoiceMenu(null);}}><Trash2 size={14}/>Delete</button>
  </div>}
- </div>}{m.pinned&&<span className="text-[9px] text-emerald-700 flex items-center gap-1 mb-1"><Pin size={10}/>Pinned</span>}<p className="text-[10px] font-semibold text-[#1684c5] mb-0.5 pr-5">~ {m.role==='admin'?'Support':chat?.name||identity.name}</p>{m.reply&&<blockquote className="border-l-2 border-emerald-500 p-2 bg-black/5 text-xs mb-2">{m.reply}</blockquote>}{m.deleted?<p className="italic text-gray-400">This message was deleted</p>:<>{m.attachment?.type.startsWith('image/')&&<button type="button" aria-label="Open image" onClick={()=>{setViewer(m.attachment!);setZoom(1);}}><img src={m.attachment.url} alt={m.attachment.name} className="max-h-64 rounded-lg mb-2 cursor-default"/></button>}{m.attachment?.type.startsWith('audio/')&&<VoicePlayer url={m.attachment.url} id={m.id} photo={profiles[m.role==='admin'?'admin':selected]} name={m.role==='admin'?'Support':chat?.name||identity.name||'Seller'}/>}<p className="whitespace-pre-wrap break-words">{m.text}</p><div className={`${m.attachment?.type.startsWith('audio/') ? 'hidden' : 'flex'} gap-3 text-[10px] text-gray-500 mt-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 h-4 overflow-hidden pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto`}><button onClick={()=>setReply(m.text||'Attachment')}>Reply</button>{m.role===role&&<><button onClick={()=>{setEditing(m.id);setText(m.text);setAttachment(null);}}>Edit</button></>}<button onClick={()=>setDeleteTarget(m.id)}>Delete</button></div></>}<p className="text-[10px] text-gray-400 text-right leading-3 mt-0.5">{m.edited?'edited · ':''}{new Date(m.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} {m.role===role&&<span aria-label={m.read?'Read':m.delivered?'Delivered':'Sent'} className={m.read?'text-sky-500 ml-1':'text-gray-400 ml-1'}>{m.read||m.delivered?'✓✓':'✓'}</span>}</p></article></div>)}<div ref={bottom}/></div>
+ </div>}{m.pinned&&<span className="text-[9px] text-emerald-700 flex items-center gap-1 mb-1"><Pin size={10}/>Pinned</span>}<p className="text-[10px] font-semibold text-[#1684c5] mb-0.5 pr-5">~ {m.role==='admin'?'Support':chat?.name||identity.name}</p>{m.reply&&<blockquote className="border-l-2 border-emerald-500 p-2 bg-black/5 text-xs mb-2">{m.reply}</blockquote>}{m.deleted?<p className="italic text-gray-400">This message was deleted</p>:<>{m.attachment?.type.startsWith('image/')&&<button type="button" aria-label="Open image" onClick={()=>{setViewer(m.attachment!);setZoom(1);}}><img src={m.attachment.url} alt={m.attachment.name} className="max-h-64 rounded-lg mb-2 cursor-default"/></button>}{m.attachment?.type.startsWith('audio/')&&<VoicePlayer url={m.attachment.url} id={m.id} photo={profiles[m.role==='admin'?'admin':selected]} name={m.role==='admin'?'Support':chat?.name||identity.name||'Seller'}/>}<p className="whitespace-pre-wrap break-words">{m.text}</p><div className={`${m.attachment?.type.startsWith('audio/') ? 'hidden' : 'flex'} gap-3 text-[10px] text-gray-500 mt-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 h-4 overflow-hidden pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto`}><button onClick={()=>setReply(m.text||'Attachment')}>Reply</button>{m.role===role&&!showingPreview&&<><button onClick={()=>{setEditing(m.id);setText(m.text);setAttachment(null);}}>Edit</button></>}<button onClick={()=>setDeleteTarget(m.id)}>Delete</button></div></>}<p className="text-[10px] text-gray-400 text-right leading-3 mt-0.5">{m.edited?'edited · ':''}{new Date(m.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} {m.role===role&&<span aria-label={m.read?'Read':m.delivered?'Delivered':'Sent'} className={m.read?'text-sky-500 ml-1':'text-gray-400 ml-1'}>{m.read||m.delivered?'✓✓':'✓'}</span>}</p></article></div>)}<div ref={bottom}/></div>
  <div className="bg-gray-50 p-3 border-t">{error&&<p role="alert" className="bg-red-50 text-red-700 text-xs p-2 rounded mb-2">{error}</p>}{(reply||editing)&&<div className="flex justify-between bg-emerald-50 p-2 text-xs mb-2"><span>{editing?'Editing message':`Reply: ${reply}`}</span><button aria-label="Cancel reply or edit" onClick={()=>{setReply('');setEditing(null);setText('');}}><X size={14}/></button></div>}{attachment&&<div className="bg-white p-2 border rounded-lg mb-2">{attachment.type.startsWith('image/')?<><img src={attachment.url} alt="Attachment preview" className="h-32 rounded"/><button onClick={rotateImage} className="text-xs flex gap-1 items-center mt-2"><RotateCw size={14}/>Rotate image</button></>:<audio src={attachment.url} controls/>}<button className="text-xs text-red-500 mt-2" onClick={()=>setAttachment(null)}>Remove attachment</button><p className="text-xs text-gray-400">Add a caption below before sending.</p></div>}{emojis&&<div className="mb-2 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white"><div className="flex items-center justify-between px-3 py-2 border-b"><span className="text-xs font-semibold text-gray-600">Emojis</span><button type="button" aria-label="Close emoji picker" title="Close" onClick={()=>setEmojis(false)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"><X size={18}/></button></div><EmojiPicker width="100%" height={380} searchPlaceholder="Search all emojis" lazyLoadEmojis onEmojiClick={emoji=>setText(t=>t+emoji.emoji)}/></div>}{recording ? <div className="flex items-center justify-end gap-3 sm:gap-4 rounded-full bg-white px-3 py-2 shadow-sm">
  <button aria-label="Delete recording" onClick={()=>finishRecording(true)} className="p-2 text-gray-700 hover:text-red-600"><Trash2 size={21}/></button>
  <span className={`w-2.5 h-2.5 rounded-full bg-rose-600 ${paused?'':'animate-pulse'}`} />

@@ -11,6 +11,7 @@ import type { SellerConfirmedOrder } from '@/components/admin/AdminConfirmSeller
 import { fetchAdminConsignOrders } from '@/lib/adminConsignOrders';
 import { EMPTY_ADMIN_TODO_COUNTS, fetchAdminTodoCounts, totalAdminTodoCount } from '@/lib/adminTodoCounts';
 import type { AdminTodoCounts } from '@/lib/adminTodoCounts';
+import { clearAdminSupportPreview } from '@/lib/adminSupportPreview';
 import { fetchConsignMerchants } from '@/lib/consignMerchants';
 import { installAdminAuditTracking, recordAdminActivity } from '@/lib/adminAuditClient';
 
@@ -173,6 +174,7 @@ function prefetchAdminTab(tab: AdminTab): void {
 export default function AdminPage() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
+  const [supportPreviewOwner, setSupportPreviewOwner] = useState('');
   const [authVerified, setAuthVerified] = useState(false);
   const [currentAdminEmail, setCurrentAdminEmail] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('orders');
@@ -226,6 +228,8 @@ export default function AdminPage() {
         if (!response.ok || !data.success) throw new Error('Admin session expired. Please sign in again.');
         if (!cancelled) {
           setCurrentAdminEmail(String(data.account?.email || ''));
+          const { id, lastLogin } = data.account || {};
+          setSupportPreviewOwner(id && lastLogin ? JSON.stringify([id, lastLogin]) : '');
           setAuthVerified(true);
         }
       } catch {
@@ -631,6 +635,7 @@ export default function AdminPage() {
           settingsSubTab={settingsSubTab}
           adminEmail={currentAdminEmail}
           onSignOut={() => {
+            clearAdminSupportPreview();
             void fetch('/api/admin/auth/session', { method: 'DELETE' }).finally(() => router.replace('/admin/login'));
           }}
         />
@@ -713,7 +718,7 @@ export default function AdminPage() {
           ) : activeTab === 'owners' ? (
             <AdminOwnersView notify={notify} />
           ) : activeTab === 'support' ? (
-            <AdminSupportView notify={notify} />
+            <AdminSupportView key={supportPreviewOwner} previewOwner={supportPreviewOwner} notify={notify} />
           ) : activeTab === 'withdrawals' || activeTab === 'admin_withdrawals' ? (
             <AdminWithdrawalsView notify={notify} />
           ) : activeTab === 'invites' ? (

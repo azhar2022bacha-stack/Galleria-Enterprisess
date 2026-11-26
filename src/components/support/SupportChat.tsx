@@ -72,22 +72,77 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  useEffect(()=>{if(admin)return;const withdrawalDraft=sessionStorage.getItem('seller_support_withdrawal_draft');const shouldAutoSendWithdrawal=sessionStorage.getItem('seller_support_withdrawal_autosend')==='1';if(withdrawalDraft&&shouldAutoSendWithdrawal)return;const draft=withdrawalDraft||sessionStorage.getItem('seller_support_deposit_draft');if(draft){setText(draft);sessionStorage.removeItem('seller_support_withdrawal_draft');sessionStorage.removeItem('seller_support_deposit_draft');}},[admin]);
  const [recording,setRecording] = useState(false); const recorder = useRef<MediaRecorder | null>(null); const stream = useRef<MediaStream | null>(null);
  const input = useRef<HTMLInputElement>(null); const bottom = useRef<HTMLDivElement>(null); const role = admin ? 'admin' : 'seller';
- useEffect(() => { try { const user = JSON.parse(localStorage.getItem('galleria_active_seller') || '{}'); setIdentity({email: user.email || '', name: user.shopName || user.fullName || user.email || ''}); if (!admin) setSelected(user.email || ''); else setSelected(sessionStorage.getItem('admin_support_selected_chat') || ''); } catch {} return () => { recorder.current?.stop(); stream.current?.getTracks().forEach(t=>t.stop()); }; },[admin]);
- async function refresh() { if (!admin && !identity.email) return; try { const res = await fetch('/api/support' + (admin ? '' : '?email='+encodeURIComponent(identity.email)), {cache:'no-store'}); if(!res.ok) throw new Error(); const data=await res.json(); setChats(Array.isArray(data.chats) ? data.chats : []);setProfiles(data.profiles||{}); } catch { setError('Unable to connect. Your draft is preserved.'); } }
+ const [inboxLoaded, setInboxLoaded] = useState(false);
+ const [inboxError, setInboxError] = useState('');
+ const restoreConversation = useRef(true);
+ const latestInboxRequest = useRef(0);
+ useEffect(() => {
+   if (!admin) {
+     try {
+       const user = JSON.parse(localStorage.getItem('galleria_active_seller') || '{}');
+       setIdentity({ email: user.email || '', name: user.shopName || user.fullName || user.email || '' });
+       setSelected(user.email || '');
+     } catch {}
+   }
+   return () => { recorder.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); };
+ }, [admin]);
+
+ async function refresh() {
+   if (!admin && !identity.email) return;
+   const request = ++latestInboxRequest.current;
+   try {
+     const query = admin ? '?summary=0' : '?email=' + encodeURIComponent(identity.email);
+     const res = await fetch('/api/support' + query, { cache: 'no-store' });
+     if (!res.ok) throw new Error();
+     const data = await res.json();
+     if (admin && request !== latestInboxRequest.current) return;
+     if (!Array.isArray(data.chats)) throw new Error();
+     const loaded: Chat[] = data.chats;
+     setChats(loaded);
+     setProfiles(data.profiles || {});
+     if (admin) {
+       setInboxLoaded(true);
+       setInboxError('');
+       if (restoreConversation.current) {
+         restoreConversation.current = false;
+         try {
+           const saved = sessionStorage.getItem('admin_support_selected_chat');
+           if (saved && loaded.some(c => c.email === saved)) setSelected(saved);
+         } catch {}
+       }
+     }
+   } catch {
+     if (admin) {
+       if (request === latestInboxRequest.current) setInboxError('Could not load support conversations.');
+     } else setError('Unable to connect. Your draft is preserved.');
+   }
+ }
+
  useEffect(() => {
    let active = true;
    let requestInFlight = false;
-   const refreshWhenReady = async () => {
-     if (!active || requestInFlight || document.visibilityState === 'hidden') return;
+   const load = async () => {
+     if (!active || requestInFlight) return;
      requestInFlight = true;
      try { await refresh(); } finally { requestInFlight = false; }
    };
-   void refreshWhenReady();
-   const timer = setInterval(() => void refreshWhenReady(), 15_000);
-   window.addEventListener('focus', refreshWhenReady);
-   document.addEventListener('visibilitychange', refreshWhenReady);
-   return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refreshWhenReady); document.removeEventListener('visibilitychange', refreshWhenReady); };
- },[admin,identity.email]);
+   const refreshWhenVisible = () => {
+     if (document.visibilityState !== 'hidden') void load();
+   };
+   if (admin) void load();
+   else refreshWhenVisible();
+   const timer = setInterval(refreshWhenVisible, 15_000);
+   window.addEventListener('focus', refreshWhenVisible);
+   document.addEventListener('visibilitychange', refreshWhenVisible);
+   return () => {
+     active = false;
+     latestInboxRequest.current++;
+     clearInterval(timer);
+     window.removeEventListener('focus', refreshWhenVisible);
+     document.removeEventListener('visibilitychange', refreshWhenVisible);
+   };
+ }, [admin, identity.email]);
+
  useEffect(()=>{if(!voiceMenu)return;const close=(e:MouseEvent)=>{if(!(e.target as HTMLElement).closest('[data-attachment-menu]'))setVoiceMenu(null);};const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setVoiceMenu(null);};document.addEventListener('click',close);document.addEventListener('keydown',key);return()=>{document.removeEventListener('click',close);document.removeEventListener('keydown',key);};},[voiceMenu]);
  const chat=chats.find(c=>c.email===selected); const messages=chat?.messages || [];
  const lastSellerSeen = chat?.presence?.seller || 0;
@@ -194,8 +249,10 @@ export function SupportChat({ admin = false }: { admin?: boolean }) {
  </div>}
 
  <div className={`flex flex-1 min-h-0 overflow-hidden bg-white`}>
- {admin&&<aside className={`w-full md:w-64 lg:w-72 border-r flex-col shrink-0 ${selected ? 'hidden md:flex' : 'flex'}`}><div className="p-3 border-b"><button type="button" onClick={()=>setProfileMenu(true)} className="flex items-center gap-2 mb-3 text-xs text-emerald-700">{profiles.admin?<img src={profiles.admin} alt="Your profile" className="w-8 h-8 rounded-full object-cover"/>:<span className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">S</span>}Your profile photo</button><div className="flex gap-2 items-center"><Search size={16}/><input aria-label="Search conversations" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sellers" className="w-full min-w-0 text-sm outline-none"/></div></div><div className="overflow-y-auto flex-1">{chats.filter(c=>(c.name+c.email).toLowerCase().includes(search.toLowerCase())).map(c=><button key={c.id} onClick={()=>{sessionStorage.setItem('admin_support_selected_chat',c.email);setSelected(c.email);setText('');setEditing(null);setReply('');setAttachment(null);}} className={`text-left p-4 w-full border-b ${selected===c.email?'bg-emerald-50':'hover:bg-gray-50'}`}><div className="font-semibold truncate text-sm flex gap-2 items-center">{profiles[c.email]&&<img src={profiles[c.email]} alt="" className="w-8 h-8 rounded-full object-cover"/>}{c.name}</div><div className="text-xs text-gray-400 truncate">{c.email}</div><p className="text-xs text-gray-500 truncate mt-1">{c.messages.at(-1)?.deleted?'Message deleted':c.messages.at(-1)?.text||'Attachment'}</p><span className="text-[10px] text-emerald-700">{c.status} {c.messages.filter(m=>m.role==='seller'&&!m.read&&!m.deleted&&!m.hiddenFor?.includes('admin')).length>0&&<span className="inline-flex items-center justify-center ml-2 min-w-[22px] h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold px-1.5">{c.messages.filter(m=>m.role==='seller'&&!m.read&&!m.deleted&&!m.hiddenFor?.includes('admin')).length}</span>}</span></button>)}{!chats.length&&<p className="p-4 text-xs text-gray-400">Seller conversations will appear here.</p>}</div></aside>}
- <main className={`flex-col flex-1 min-w-0 ${admin && !selected ? 'hidden md:flex' : 'flex'}`}>{!selected?<div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3"><MessageCircle size={48}/><p>{admin?'Select a conversation':'Sign in to your seller account to chat.'}</p></div>:<><div className="p-2 sm:p-3 border-b flex flex-wrap items-center gap-3 bg-white">{!admin&&<button type="button" aria-label="Your profile settings" title="Your profile photo" onClick={()=>setProfileMenu(true)} className="ml-auto order-last inline-flex items-center gap-2 px-3 py-2 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 shadow-sm hover:bg-emerald-100 hover:border-emerald-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"><span className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white"><UserRound size={16}/></span><span className="text-xs font-semibold">Profile</span></button>}<button type="button" onClick={()=>setFullScreen(value => !value)} aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'} className="ml-auto order-last p-2 rounded-lg text-gray-500 hover:bg-gray-100">{fullScreen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>{admin && <button type="button" aria-label="Back to conversations" onClick={()=>setSelected('')} className="md:hidden p-1"><ArrowLeft size={20}/></button>}<div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold overflow-hidden">{profiles[admin?selected:'admin']?<img src={profiles[admin?selected:'admin']} alt={admin?chat?.name:'Support'} className="w-full h-full object-cover"/>:admin?(chat?.name||'S')[0]:'S'}</div><div className="flex-1"><h2 className="font-bold text-sm">{admin?chat?.name||selected:'Support team'}</h2><p className={`text-xs ${!admin||sellerOnline?'text-emerald-600':'text-gray-500'}`}>{!admin?'Online':sellerOnline?'Online':lastSeenLabel(lastSellerSeen)}</p></div>{admin&&chat&&<button className="text-xs text-emerald-700 border rounded-lg p-2" onClick={()=>action('status').catch(e=>setError(e.message))}>{chat.status==='closed'?'Reopen':'Resolve'}</button>}<input aria-label="Search messages" className="border rounded-lg p-2 text-xs w-32" placeholder="Search messages" value={messageSearch} onChange={e=>setMessageSearch(e.target.value)}/></div>
+ {admin&&<aside className={`w-full md:w-64 lg:w-72 border-r flex-col shrink-0 ${selected ? 'hidden md:flex' : 'flex'}`}><div className="p-3 border-b"><button type="button" onClick={()=>setProfileMenu(true)} className="flex items-center gap-2 mb-3 text-xs text-emerald-700">{profiles.admin?<img src={profiles.admin} alt="Your profile" className="w-8 h-8 rounded-full object-cover"/>:<span className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">S</span>}Your profile photo</button><div className="flex gap-2 items-center"><Search size={16}/><input aria-label="Search conversations" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sellers" className="w-full min-w-0 text-sm outline-none"/></div></div><div className="overflow-y-auto flex-1">{chats.filter(c=>(c.name+c.email).toLowerCase().includes(search.toLowerCase())).map(c=><button key={c.id} onClick={()=>{sessionStorage.setItem('admin_support_selected_chat',c.email);setSelected(c.email);setText('');setEditing(null);setReply('');setAttachment(null);}} className={`text-left p-4 w-full border-b ${selected===c.email?'bg-emerald-50':'hover:bg-gray-50'}`}><div className="font-semibold truncate text-sm flex gap-2 items-center">{profiles[c.email]&&<img src={profiles[c.email]} alt="" className="w-8 h-8 rounded-full object-cover"/>}{c.name}</div><div className="text-xs text-gray-400 truncate">{c.email}</div><p className="text-xs text-gray-500 truncate mt-1">{c.messages.at(-1)?.deleted?'Message deleted':c.messages.at(-1)?.text||'Attachment'}</p><span className="text-[10px] text-emerald-700">{c.status} {c.messages.filter(m=>m.role==='seller'&&!m.read&&!m.deleted&&!m.hiddenFor?.includes('admin')).length>0&&<span className="inline-flex items-center justify-center ml-2 min-w-[22px] h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold px-1.5">{c.messages.filter(m=>m.role==='seller'&&!m.read&&!m.deleted&&!m.hiddenFor?.includes('admin')).length}</span>}</span></button>)}{inboxError && <p role="alert" className="p-4 text-xs text-amber-800">{inboxError} <button type="button" className="underline" onClick={() => void refresh()}>Retry</button></p>}
+ {!inboxError && !inboxLoaded && <p role="status" className="p-4 text-xs text-gray-500">Loading conversations…</p>}
+ {!inboxError && inboxLoaded && !chats.length && <p className="p-4 text-xs text-gray-500">No support conversations yet.</p>}</div></aside>}
+ <main className={`flex-col flex-1 min-w-0 ${admin && !selected ? 'hidden md:flex' : 'flex'}`}>{!selected?<div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3"><MessageCircle size={48}/><p>{admin?'Select a conversation':'Sign in to your seller account to chat.'}</p></div>:<><div className="p-2 sm:p-3 border-b flex flex-wrap items-center gap-3 bg-white">{!admin&&<button type="button" aria-label="Your profile settings" title="Your profile photo" onClick={()=>setProfileMenu(true)} className="ml-auto order-last inline-flex items-center gap-2 px-3 py-2 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 shadow-sm hover:bg-emerald-100 hover:border-emerald-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"><span className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white"><UserRound size={16}/></span><span className="text-xs font-semibold">Profile</span></button>}<button type="button" onClick={()=>setFullScreen(value => !value)} aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'} className="ml-auto order-last p-2 rounded-lg text-gray-500 hover:bg-gray-100">{fullScreen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>{admin && <button type="button" aria-label="Back to conversations" onClick={()=>{sessionStorage.removeItem('admin_support_selected_chat');setSelected('');}} className="md:hidden p-1"><ArrowLeft size={20}/></button>}<div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold overflow-hidden">{profiles[admin?selected:'admin']?<img src={profiles[admin?selected:'admin']} alt={admin?chat?.name:'Support'} className="w-full h-full object-cover"/>:admin?(chat?.name||'S')[0]:'S'}</div><div className="flex-1"><h2 className="font-bold text-sm">{admin?chat?.name||selected:'Support team'}</h2><p className={`text-xs ${!admin||sellerOnline?'text-emerald-600':'text-gray-500'}`}>{!admin?'Online':sellerOnline?'Online':lastSeenLabel(lastSellerSeen)}</p></div>{admin&&chat&&<button className="text-xs text-emerald-700 border rounded-lg p-2" onClick={()=>action('status').catch(e=>setError(e.message))}>{chat.status==='closed'?'Reopen':'Resolve'}</button>}<input aria-label="Search messages" className="border rounded-lg p-2 text-xs w-32" placeholder="Search messages" value={messageSearch} onChange={e=>setMessageSearch(e.target.value)}/></div>
  <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#efeae2]" style={{backgroundImage:'radial-gradient(#d6d1c7 0.7px, transparent 0.7px)',backgroundSize:'18px 18px'}}>{!messages.length&&<p className="bg-white/80 rounded-lg p-3 text-xs text-gray-500 text-center">Start a conversation. Send a message, photo or voice note.</p>}{messages.filter(m=>!m.hiddenFor?.includes(role) && (!messageSearch||m.text.toLowerCase().includes(messageSearch.toLowerCase()))).map(m=><div key={m.id} className={`flex items-end gap-2 ${m.role===role?'justify-end':'justify-start'}`}><article className={`relative group max-w-[85%] sm:max-w-[75%] rounded-lg px-2.5 py-1.5 shadow-sm text-[13px] ${m.role===role?'bg-[#d9fdd3]':'bg-white'}`}>{m.attachment && !m.deleted && <div data-attachment-menu className="absolute right-1 top-1 z-10">
  <button aria-label="Attachment options" aria-expanded={voiceMenu===m.id} onClick={()=>setVoiceMenu(voiceMenu===m.id?null:m.id)} className="p-1 rounded hover:bg-black/5 text-gray-500"><ChevronDown size={14}/></button>
  {voiceMenu===m.id && <div className="absolute right-0 top-7 w-40 rounded-lg bg-white border shadow-lg py-1 text-xs">

@@ -102,9 +102,11 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  async function refresh() {
    if (!admin && !identity.email) return;
    const request = ++latestInboxRequest.current;
+   const controller = new AbortController();
+   const timeout = window.setTimeout(() => controller.abort(), 15_000);
    try {
      const query = admin ? '?summary=0' : '?email=' + encodeURIComponent(identity.email);
-     const res = await fetch('/api/support' + query, { cache: 'no-store' });
+     const res = await fetch('/api/support' + query, { cache: 'no-store', signal: controller.signal });
      if (admin && request === latestInboxRequest.current && (res.status === 401 || res.status === 403)) {
        clearAdminSupportPreview();
        setChats([]);
@@ -132,10 +134,16 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
          } catch {}
        }
      }
-   } catch {
+   } catch (error) {
      if (admin) {
-       if (request === latestInboxRequest.current) setInboxError('Could not load support conversations.');
+       if (request === latestInboxRequest.current) {
+         setInboxError(error instanceof Error && error.name === 'AbortError'
+           ? 'Support conversations took too long to load. Please retry.'
+           : 'Could not load support conversations. Please retry.');
+       }
      } else setError('Unable to connect. Your draft is preserved.');
+   } finally {
+     window.clearTimeout(timeout);
    }
  }
 

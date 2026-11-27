@@ -307,6 +307,43 @@ async function initializeDb(): Promise<boolean> {
         CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_admin_handover_tasks_status ON admin_handover_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_admin_handover_tasks_due_at ON admin_handover_tasks(due_at);
+
+        CREATE TABLE IF NOT EXISTS support_conversations (
+          id VARCHAR(100) PRIMARY KEY,
+          seller_email VARCHAR(255) UNIQUE NOT NULL,
+          seller_name VARCHAR(255) NOT NULL DEFAULT '',
+          status VARCHAR(20) NOT NULL DEFAULT 'open',
+          presence JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_support_conversations_email ON support_conversations(LOWER(seller_email));
+        CREATE INDEX IF NOT EXISTS idx_support_conversations_updated_at ON support_conversations(updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS support_messages (
+          id VARCHAR(100) PRIMARY KEY,
+          conversation_id VARCHAR(100) NOT NULL REFERENCES support_conversations(id) ON DELETE CASCADE,
+          role VARCHAR(20) NOT NULL,
+          text TEXT NOT NULL DEFAULT '',
+          attachment JSONB,
+          reply TEXT,
+          edited BOOLEAN NOT NULL DEFAULT FALSE,
+          deleted BOOLEAN NOT NULL DEFAULT FALSE,
+          pinned BOOLEAN NOT NULL DEFAULT FALSE,
+          hidden_for JSONB NOT NULL DEFAULT '[]'::jsonb,
+          read BOOLEAN NOT NULL DEFAULT FALSE,
+          delivered BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_support_messages_conv_created ON support_messages(conversation_id, created_at ASC);
+
+        CREATE TABLE IF NOT EXISTS support_profiles (
+          profile_key VARCHAR(255) PRIMARY KEY,
+          photo TEXT NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
       `);
 
       isInitialized = true;

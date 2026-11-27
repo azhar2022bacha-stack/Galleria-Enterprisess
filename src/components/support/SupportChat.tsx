@@ -8,10 +8,10 @@ const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 import { createPortal } from 'react-dom';
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, Paperclip, Mic, Square, Smile, Search, MessageCircle, X, RotateCw, Maximize2, Minimize2, UserRound, ArrowLeft, ChevronLeft, ChevronRight, Reply, ZoomIn, ZoomOut, ChevronDown, Pin, Download, Trash2, Pause, Play } from 'lucide-react';
+import { Send, Loader2, Paperclip, Mic, Square, Smile, Search, MessageCircle, X, RotateCw, Maximize2, Minimize2, UserRound, ArrowLeft, ChevronLeft, ChevronRight, Reply, ZoomIn, ZoomOut, ChevronDown, Pin, Download, Trash2, Pause, Play } from 'lucide-react';
 type Attachment = { url: string; name: string; type: string };
 type Message = { id: string; role: string; text: string; at: string; edited?: boolean; deleted?: boolean; pinned?: boolean; hiddenFor?: string[]; read?: boolean; delivered?: boolean; attachment?: Attachment; reply?: string };
-type Chat = { id: string; email: string; name: string; status: string; presence?: Record<string,number>; messages: Message[] };
+type Chat = { id: string; email: string; name: string; status: string; presence?: Record<string,number>; messages: Message[]; updatedAt?: string };
 let activeSupportAudio: HTMLAudioElement | null = null;
 
 function VoicePlayer({ url, id, photo, name }: { url: string; id: string; photo?: string; name: string }) {
@@ -79,6 +79,7 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  const [attachment,setAttachment] = useState<Attachment | null>(null); const [editing,setEditing] = useState<string | null>(null); const [reply,setReply] = useState('');
  const [voiceLevels,setVoiceLevels] = useState<number[]>(Array(45).fill(2));
  const audioContext = useRef<AudioContext | null>(null); const animationFrame = useRef<number | null>(null);
+ const sendInFlight = useRef(false);
  const [recordSeconds,setRecordSeconds] = useState(0); const [paused,setPaused] = useState(false); const discardRecording = useRef(false); const sendRecording = useRef(false);
  useEffect(()=>{if(admin)return;const withdrawalDraft=sessionStorage.getItem('seller_support_withdrawal_draft');const shouldAutoSendWithdrawal=sessionStorage.getItem('seller_support_withdrawal_autosend')==='1';if(withdrawalDraft&&shouldAutoSendWithdrawal)return;const draft=withdrawalDraft||sessionStorage.getItem('seller_support_deposit_draft');if(draft){setText(draft);sessionStorage.removeItem('seller_support_withdrawal_draft');sessionStorage.removeItem('seller_support_deposit_draft');}},[admin]);
  const [recording,setRecording] = useState(false); const recorder = useRef<MediaRecorder | null>(null); const stream = useRef<MediaStream | null>(null);
@@ -189,7 +190,7 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  const ownProfileKey=admin?'admin':identity.email;
  const imageIndex=gallery.findIndex(m=>m.attachment?.url===viewer?.url); const imageMessage=gallery[imageIndex];
  function navigateImage(delta:number){const m=gallery[imageIndex+delta];if(m?.attachment){setViewer(m.attachment);setZoom(1);}}
- async function action(action: string, extra: object = {}) {
+ async function action(action: string, extra: object = {}, options: { refreshAfter?: boolean } = {}): Promise<Chat | null> {
    setError('');
    const controller = new AbortController();
    const timeout = window.setTimeout(() => controller.abort(), 15_000);
@@ -214,7 +215,8 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
    }
    if (!response.ok) throw new Error(data?.error || `Support request failed (${response.status}).`);
    if (action === 'send' && !data?.chat) throw new Error('The message was not saved. Your draft is still here.');
-   await refresh();
+   if (options.refreshAfter !== false) await refresh();
+   return data?.chat || null;
  }
  const withdrawalAutoSendStarted = useRef(false);
  useEffect(()=>{
@@ -258,7 +260,35 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  window.addEventListener('focus', heartbeat); document.addEventListener('visibilitychange', heartbeat);
  return () => { clearInterval(timer); window.removeEventListener('focus', heartbeat); document.removeEventListener('visibilitychange', heartbeat); };
  },[selected,role]);
- async function send() { if(busy || (!text.trim()&&!attachment)) return; setBusy(true); try { await action(editing?'edit':'send',{text,attachment,messageId:editing,reply}); setText('');setAttachment(null);setEditing(null);setReply(''); } catch(e:any){setError(e.message);} finally{setBusy(false);} }
+ async function send() {
+   if (sendInFlight.current || busy || (!text.trim() && !attachment) || recording) return;
+   sendInFlight.current = true;
+   setBusy(true);
+   try {
+     const savedChat = await action(editing ? 'edit' : 'send', { text, attachment, messageId: editing, reply }, { refreshAfter: false });
+     if (savedChat) {
+       // Apply the server-confirmed conversation immediately. Do not keep the
+       // composer disabled while a separate inbox refresh is loading.
+       latestInboxRequest.current++;
+       setChats(current => {
+         const next = [savedChat, ...current.filter(chat => chat.email !== savedChat.email)]
+           .sort((a, b) => Date.parse(b.updatedAt || b.messages.at(-1)?.at || '') - Date.parse(a.updatedAt || a.messages.at(-1)?.at || ''));
+         if (admin) saveAdminSupportPreview(previewOwner, next);
+         return next;
+       });
+     }
+     setText('');
+     setAttachment(null);
+     setEditing(null);
+     setReply('');
+     void refresh();
+   } catch (e: any) {
+     setError(e instanceof Error ? e.message : 'Unable to send the message. Your draft is still here.');
+   } finally {
+     sendInFlight.current = false;
+     setBusy(false);
+   }
+ }
  function loadFile(file?: File) { if(!file) return; if(file.size>5*1024*1024){setError('Please choose a file smaller than 5 MB.');return;} if(!/^(image\/(png|jpeg|webp)|audio\/(webm|ogg|mp4))$/.test(file.type)){setError('Choose a PNG, JPEG, WebP image or supported audio file.');return;} const reader=new FileReader();reader.onload=()=>{const selected={url:String(reader.result),type:file.type,name:file.name};if(file.type.startsWith('image/'))setDraftImage(selected);else setAttachment(selected);};reader.readAsDataURL(file); }
  useEffect(()=>{if(!recording||paused)return;const timer=setInterval(()=>setRecordSeconds(n=>n+1),1000);return()=>clearInterval(timer);},[recording,paused]);
  function finishRecording(discard = false, sendNow = false) { discardRecording.current=discard; sendRecording.current=sendNow; recorder.current?.stop(); setRecording(false); setPaused(false); }
@@ -323,6 +353,6 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  <div aria-label={paused?'Recording paused':'Recording in progress'} className="flex items-center gap-[2px] h-7 flex-1 max-w-[220px] overflow-hidden">{voiceLevels.map((level,i)=><span key={i} className="w-[3px] shrink-0 rounded-full bg-gray-500" style={{height:level}} />)}</div>
  <button aria-label={paused?'Resume recording':'Pause recording'} onClick={()=>{const rec=recorder.current;if(!rec)return;if(rec.state==='recording'){rec.pause();setPaused(true);}else if(rec.state==='paused'){rec.resume();setPaused(false);}}} className="p-2 text-rose-600">{paused?<Play size={21}/>:<Pause size={21}/>}</button>
  <button aria-label="Send voice message" onClick={()=>finishRecording(false,true)} className="p-3 rounded-full bg-emerald-600 text-white"><Send size={21}/></button>
- </div> : <div className="flex items-end gap-2"><button aria-label="Emojis" className="p-2 text-gray-500" onClick={()=>setEmojis(!emojis)}><Smile size={21}/></button><button aria-label="Attach image or audio" className="p-2 text-gray-500" onClick={()=>input.current?.click()}><Paperclip size={21}/></button><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,audio/webm,audio/ogg,audio/mp4" hidden onChange={e=>{loadFile(e.target.files?.[0]);e.target.value='';}}/><textarea aria-label="Message" rows={1} maxLength={4000} placeholder={recording?'Recording… click stop when finished':'Type a message'} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}} className="flex-1 min-w-0 rounded-xl border p-3 text-base sm:text-sm resize-none max-h-32"/><button aria-label={recording?'Stop recording':'Record voice message'} onClick={record} className={`p-3 rounded-full ${recording?'bg-red-100 text-red-600':'text-gray-500'}`}>{recording?<Square size={19}/>:<Mic size={19}/>}</button><button disabled={busy||(!text.trim()&&!attachment)||recording} aria-label="Send message" onClick={send} className="rounded-full bg-emerald-600 text-white p-3 disabled:opacity-40"><Send size={19}/></button></div>}</div></> }</main></div></div>;
+ </div> : <div className="flex items-end gap-2"><button aria-label="Emojis" className="p-2 text-gray-500" onClick={()=>setEmojis(!emojis)}><Smile size={21}/></button><button aria-label="Attach image or audio" className="p-2 text-gray-500" onClick={()=>input.current?.click()}><Paperclip size={21}/></button><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,audio/webm,audio/ogg,audio/mp4" hidden onChange={e=>{loadFile(e.target.files?.[0]);e.target.value='';}}/><textarea aria-label="Message" rows={1} maxLength={4000} placeholder={recording?'Recording… click stop when finished':'Type a message'} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}} className="flex-1 min-w-0 rounded-xl border p-3 text-base sm:text-sm resize-none max-h-32"/><button aria-label={recording?'Stop recording':'Record voice message'} onClick={record} className={`p-3 rounded-full ${recording?'bg-red-100 text-red-600':'text-gray-500'}`}>{recording?<Square size={19}/>:<Mic size={19}/>}</button><button type="button" disabled={busy||(!text.trim()&&!attachment)||recording} aria-label={busy?'Sending message':'Send message'} title={busy?'Sending message…':'Send message'} onClick={send} className="rounded-full bg-emerald-600 text-white p-3 disabled:opacity-40">{busy?<Loader2 size={19} className="animate-spin"/>:<Send size={19}/>}</button></div>}</div></> }</main></div></div>;
  return fullScreen && typeof document !== 'undefined' ? createPortal(chatLayout, document.body) : chatLayout;
 }

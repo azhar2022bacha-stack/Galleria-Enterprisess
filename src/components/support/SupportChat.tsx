@@ -189,7 +189,33 @@ export function SupportChat({ admin = false, previewOwner = '' }: { admin?: bool
  const ownProfileKey=admin?'admin':identity.email;
  const imageIndex=gallery.findIndex(m=>m.attachment?.url===viewer?.url); const imageMessage=gallery[imageIndex];
  function navigateImage(delta:number){const m=gallery[imageIndex+delta];if(m?.attachment){setViewer(m.attachment);setZoom(1);}}
- async function action(action: string, extra: object = {}) { setError(''); const res=await fetch('/api/support',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,email:selected,name:identity.name,role,...extra})}); const data=await res.json(); if(!res.ok) throw new Error(data.error || 'Request failed'); await refresh(); }
+ async function action(action: string, extra: object = {}) {
+   setError('');
+   const controller = new AbortController();
+   const timeout = window.setTimeout(() => controller.abort(), 15_000);
+   let response: Response;
+   let data: any;
+   try {
+     response = await fetch('/api/support', {
+       method: 'POST',
+       credentials: 'same-origin',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ action, email: selected, name: identity.name, role, ...extra }),
+       signal: controller.signal,
+     });
+     data = await response.json().catch(() => null);
+   } catch (error) {
+     if (controller.signal.aborted) {
+       throw new Error('The support request timed out. Check the conversation before retrying.');
+     }
+     throw error;
+   } finally {
+     window.clearTimeout(timeout);
+   }
+   if (!response.ok) throw new Error(data?.error || `Support request failed (${response.status}).`);
+   if (action === 'send' && !data?.chat) throw new Error('The message was not saved. Your draft is still here.');
+   await refresh();
+ }
  const withdrawalAutoSendStarted = useRef(false);
  useEffect(()=>{
    if(admin||!identity.email||selected!==identity.email||withdrawalAutoSendStarted.current)return;

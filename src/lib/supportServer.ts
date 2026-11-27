@@ -678,6 +678,7 @@ export async function handleSupportAction(params: {
     const now = Date.now();
     let newMessage: SupportMessage | undefined;
     let updatedMessage: SupportMessage | undefined;
+    let sellerNotification: Parameters<typeof createSellerNotificationServer>[0] | undefined;
     let shouldPersist = true;
     let shouldEmit = true;
 
@@ -750,23 +751,19 @@ export async function handleSupportAction(params: {
       newMessage = message;
 
       if (role === 'admin') {
-        try {
-          createSellerNotificationServer({
-            sellerEmail: email,
-            category: 'Support',
-            title: 'A new message from Galleria Enterprises, Inc. Support',
-            message: [
-              { text: 'Galleria Enterprises, Inc. Support sent you a message: ' },
-              { text: text || 'An attachment was added to your support conversation.', emphasis: 'blue' },
-              { text: ' Open your Support conversation to reply.' },
-            ],
-            tone: 'info',
-            href: '/seller/dashboard?tab=support',
-            dedupeKey: `support-message:${message.id}`,
-          });
-        } catch (notificationError) {
-          console.error('Unable to create support notification:', notificationError);
-        }
+        sellerNotification = {
+          sellerEmail: email,
+          category: 'Support',
+          title: 'A new message from Galleria Enterprises, Inc. Support',
+          message: [
+            { text: 'Galleria Enterprises, Inc. Support sent you a message: ' },
+            { text: text || 'An attachment was added to your support conversation.', emphasis: 'blue' },
+            { text: ' Open your Support conversation to reply.' },
+          ],
+          tone: 'info',
+          href: '/seller/dashboard?tab=support',
+          dedupeKey: `support-message:${message.id}`,
+        };
       }
     } else if (action === 'pin') {
       const m = chat.messages.find((msg) => msg.id === params.messageId);
@@ -796,23 +793,19 @@ export async function handleSupportAction(params: {
       chat.status = chat.status === 'closed' ? 'open' : 'closed';
       chat.updatedAt = new Date().toISOString();
       if (chat.status === 'closed') {
-        try {
-          createSellerNotificationServer({
-            sellerEmail: email,
-            category: 'Support',
-            title: 'Your support case has been resolved',
-            message: [
-              { text: 'Your support conversation has been marked as ' },
-              { text: 'resolved', emphasis: 'blue' },
-              { text: '. You can contact us again if you still need help.' },
-            ],
-            tone: 'success',
-            href: '/seller/dashboard?tab=support',
-            dedupeKey: `support-closed:${chat.id}:${Date.now()}`,
-          });
-        } catch (notificationError) {
-          console.error('Unable to create support resolution notification:', notificationError);
-        }
+        sellerNotification = {
+          sellerEmail: email,
+          category: 'Support',
+          title: 'Your support case has been resolved',
+          message: [
+            { text: 'Your support conversation has been marked as ' },
+            { text: 'resolved', emphasis: 'blue' },
+            { text: '. You can contact us again if you still need help.' },
+          ],
+          tone: 'success',
+          href: '/seller/dashboard?tab=support',
+          dedupeKey: `support-closed:${chat.id}:${Date.now()}`,
+        };
       }
     } else {
       throw new Error('Unsupported action.');
@@ -823,6 +816,16 @@ export async function handleSupportAction(params: {
     }
     if (shouldEmit) {
       emitSupportEvent({ type: 'chat-updated', email, reason: action });
+    }
+    if (sellerNotification) {
+      const notification = sellerNotification;
+      setImmediate(() => {
+        try {
+          createSellerNotificationServer(notification);
+        } catch (notificationError) {
+          console.error('Unable to create support notification:', notificationError);
+        }
+      });
     }
 
     return { chat };

@@ -4,6 +4,7 @@ import { getRequestSellerEmail } from '@/lib/sellerSession';
 import { getSupportInbox, handleSupportAction, normalizeEmail, updateSupportProfile } from '@/lib/supportServer';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
   try {

@@ -1388,7 +1388,6 @@ export default function SellerDashboardPage() {
           {accountSuspension && <div role="alert" className="order-first w-full rounded-xl border-2 border-rose-400 bg-rose-950 px-4 py-3 text-white shadow-lg">
             <p className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide"><ShieldCheck className="h-4 w-4 text-rose-300" />Seller account suspended</p>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm"><strong>Reason:</strong> {accountSuspension.reason}</p>
-            <p className="mt-1 text-xs font-semibold text-emerald-200">Dashboard and Support remain available. Other seller features are disabled.</p>
           </div>}
           {/* Store Info Left */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">

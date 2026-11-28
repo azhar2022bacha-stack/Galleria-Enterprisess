@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     let filterEmail: string | undefined;
 
     if (isSellerView) {
-      const sessionSellerEmail = getRequestSellerEmail(req);
+      const sessionSellerEmail = getRequestSellerEmail(req, { allowSuspended: true });
       const admin = sessionSellerEmail ? null : await getRequestAdmin(req);
       if (!sessionSellerEmail && !admin) {
         return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'A seller account is required.' }, { status: 400 });
       }
     } else {
-      const normalizedSessionEmail = getRequestSellerEmail(req);
+      const normalizedSessionEmail = getRequestSellerEmail(req, { allowSuspended: true });
       if (!normalizedSessionEmail) {
         return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
       }

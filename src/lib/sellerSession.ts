@@ -1,4 +1,5 @@
 import { recoveredCredentials } from './sellerRecoveryServer';
+import { getSellerAccountSuspension } from './sellerAccountRestrictionsServer';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { NextResponse } from 'next/server';
 
@@ -55,14 +56,17 @@ export function getSellerEmailFromToken(token: string): string {
   }
 }
 
-export function getRequestSellerEmail(request: Request): string {
+export function getRequestSellerEmail(request: Request, options: { allowSuspended?: boolean } = {}): string {
   const cookieHeader = request.headers.get('cookie') || '';
   const cookie = cookieHeader.split(';').map((part) => part.trim())
     .find((part) => part.startsWith(`${SELLER_SESSION_COOKIE}=`));
   if (!cookie) return '';
 
   try {
-    return getSellerEmailFromToken(decodeURIComponent(cookie.slice(SELLER_SESSION_COOKIE.length + 1)));
+    const email = getSellerEmailFromToken(decodeURIComponent(cookie.slice(SELLER_SESSION_COOKIE.length + 1)));
+    if (!email) return '';
+    if (!options.allowSuspended && getSellerAccountSuspension(email)) return '';
+    return email;
   } catch {
     return '';
   }

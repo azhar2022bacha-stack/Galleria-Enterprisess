@@ -51,6 +51,7 @@ export type AdminTab =
   | 'manual_payment'
   | 'seller_recovery'
   | 'update_amount'
+  | 'suspend_account'
   | 'audit_log'
   | 'accounts'
   | 'consign'
@@ -207,6 +208,7 @@ export function AdminSidebar({
     { id: 'manual_payment', label: 'Manual Payment', iconType: 'dollar' },
     { id: 'seller_recovery', label: 'Seller Account Recovery', iconType: 'shield' },
     { id: 'update_amount', label: 'Update Amount', iconType: 'dollar' },
+    { id: 'suspend_account', label: 'Suspend Account', iconType: 'shield' },
     { id: 'audit_log', label: 'Audit log', iconType: 'grid' },
     { id: 'accounts', label: 'Accounts', iconType: 'grid' },
     { id: 'consign', label: 'Consign', iconType: 'shield' },

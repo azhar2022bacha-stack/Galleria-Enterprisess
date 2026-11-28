@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { readStoreExposure } from '@/lib/storeExposureServer';
 import { getSellerByEmailServer } from '@/lib/inviteCodesServer';
 import { getRequestSellerEmail } from '@/lib/sellerSession';
+import { getSellerAccountSuspension } from '@/lib/sellerAccountRestrictionsServer';
 import { hasViewedSellerApproval, recordSellerApprovalView } from '@/lib/sellerShopSettingsServer';
 import { readStorefrontOrders } from '@/lib/storefrontOrdersServer';
 import { readSellerWalletAdjustments, sellerWalletAdjustmentCents } from '@/lib/sellerWalletAdjustmentsServer';
@@ -10,7 +11,7 @@ import { readSellerWalletAdjustments, sellerWalletAdjustmentCents } from '@/lib/
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const sessionEmail = getRequestSellerEmail(request);
+    const sessionEmail = getRequestSellerEmail(request, { allowSuspended: true });
     const emailParam = (searchParams.get('email') || '').trim().toLowerCase();
     if (!sessionEmail) {
       return NextResponse.json({ success: false, error: 'Seller sign-in is required.' }, { status: 401 });
@@ -30,6 +31,22 @@ export async function GET(request: Request) {
         },
         { status: 200 }
       );
+    }
+
+    const accountSuspension = getSellerAccountSuspension(sessionEmail);
+    if (accountSuspension) {
+      return NextResponse.json({
+        success: true,
+        seller: {
+          fullName: seller.fullName,
+          email: seller.email,
+          shopName: seller.shopName,
+          status: seller.status || 'review',
+          idStatus: seller.idStatus || 'No ID uploaded',
+          isApproved: false,
+          accountSuspension,
+        },
+      }, { headers: { 'Cache-Control': 'no-store, private' } });
     }
 
     const isApproved = seller.status === 'approved' && seller.idStatus === 'Verified';
@@ -65,6 +82,7 @@ export async function GET(request: Request) {
           grantedFunds: Math.max(0, sellerWalletAdjustmentCents(guaranteeAdjustments)) / 100,
           retailGrossSales: retailSalesCents / 100,
           storeTraffic: readStoreExposure(sessionEmail),
+          accountSuspension: null,
         },
       },
       { status: 200 }

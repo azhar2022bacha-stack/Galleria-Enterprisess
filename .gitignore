@@ -59,3 +59,4 @@ Thumbs.db
 /src/data/store_exposure.json.*.tmp
 
 /src/data/seller_recovery.json*
+/src/data/seller-account-restrictions/

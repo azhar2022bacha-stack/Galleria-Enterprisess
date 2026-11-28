@@ -383,6 +383,46 @@ export default function SellerDashboardPage() {
   // Account Approval & KYC verification status state
   const [sellerStatus, setSellerStatus] = useState<string>('review');
   const [sellerIdStatus, setSellerIdStatus] = useState<string>('No ID uploaded');
+  const [accountSuspension, setAccountSuspension] = useState<{ status: 'suspended'; reason: string; updatedAt: string } | null>(null);
+  const isAccountSuspended = accountSuspension?.status === 'suspended';
+  useEffect(() => {
+    if (isAccountSuspended && activeNav !== 'support') setActiveNav('support');
+  }, [isAccountSuspended, activeNav]);
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const refreshSuspension = async () => {
+      if (!active || inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/seller/account-restriction', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active) {
+          const nextSuspension = data.suspension?.status === 'suspended' ? data.suspension : null;
+          setAccountSuspension((current) => current?.status === nextSuspension?.status
+            && current?.reason === nextSuspension?.reason
+            && current?.updatedAt === nextSuspension?.updatedAt
+            ? current
+            : nextSuspension);
+        }
+      } catch {
+        // Keep the last known restriction state while temporarily offline.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refreshSuspension();
+    const timer = window.setInterval(() => void refreshSuspension(), 10_000);
+    window.addEventListener('focus', refreshSuspension);
+    document.addEventListener('visibilitychange', refreshSuspension);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshSuspension);
+      document.removeEventListener('visibilitychange', refreshSuspension);
+    };
+  }, []);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [approvalViewed, setApprovalViewed] = useState(false);
   const [grantedFunds, setGrantedFunds] = useState(0);
@@ -492,6 +532,7 @@ export default function SellerDashboardPage() {
             });
             if (parsed.status) setSellerStatus(parsed.status.toLowerCase());
             if (parsed.idStatus) setSellerIdStatus(parsed.idStatus);
+            if (parsed.accountSuspension?.status === 'suspended') setAccountSuspension(parsed.accountSuspension);
 
             const initialProds = getSellerProducts<ProductItem>(activeEmail);
             setProducts(initialProds);
@@ -525,6 +566,12 @@ export default function SellerDashboardPage() {
             const idSt = data.seller.idStatus || 'No ID uploaded';
             setSellerStatus(st);
             setSellerIdStatus(idSt);
+            const nextSuspension = data.seller.accountSuspension?.status === 'suspended' ? data.seller.accountSuspension : null;
+            setAccountSuspension((current) => current?.status === nextSuspension?.status
+              && current?.reason === nextSuspension?.reason
+              && current?.updatedAt === nextSuspension?.updatedAt
+              ? current
+              : nextSuspension);
             setApprovalViewed((viewed) => viewed || data.seller.approvalViewed === true);
             if (data.seller.package) cacheSellerPackage(data.seller.package.tier.id, data.seller.package.spend, data.seller.email);
             setGrantedFunds(Number(data.seller.grantedFunds) || 0);
@@ -556,25 +603,27 @@ export default function SellerDashboardPage() {
                 setProducts(loadedProds);
                 setAddedStorehouseIds(loadedProds.map((p) => p.id));
               }
-              try {
-                const { pending, revision } = bulkProductWritesRef.current;
-                const savedResponse = await fetch(`/api/seller/products?email=${encodeURIComponent(finalEmail)}`, { cache: 'no-store' });
-                if (savedResponse.ok) {
-                  const savedPayload = await savedResponse.json();
-                  if (!pending && revision === bulkProductWritesRef.current.revision
-                    && savedPayload.authoritative && Array.isArray(savedPayload.products)) {
-                    const savedProducts = savedPayload.products as ProductItem[];
-                    const savedIds = new Set(savedProducts.map((product) => product.id));
-                    const localIds = new Set(loadedProds.map((product) => product.id));
-                    const sameIds = savedIds.size === localIds.size && Array.from(localIds).every((id) => savedIds.has(id));
-                    if (!sameIds) {
-                      setProducts(savedProducts);
-                      setAddedStorehouseIds(savedProducts.map((product) => product.id));
-                      saveSellerProducts(savedProducts, finalEmail);
+              if (data.seller.accountSuspension?.status !== 'suspended') {
+                try {
+                  const { pending, revision } = bulkProductWritesRef.current;
+                  const savedResponse = await fetch(`/api/seller/products?email=${encodeURIComponent(finalEmail)}`, { cache: 'no-store' });
+                  if (savedResponse.ok) {
+                    const savedPayload = await savedResponse.json();
+                    if (!pending && revision === bulkProductWritesRef.current.revision
+                      && savedPayload.authoritative && Array.isArray(savedPayload.products)) {
+                      const savedProducts = savedPayload.products as ProductItem[];
+                      const savedIds = new Set(savedProducts.map((product) => product.id));
+                      const localIds = new Set(loadedProds.map((product) => product.id));
+                      const sameIds = savedIds.size === localIds.size && Array.from(localIds).every((id) => savedIds.has(id));
+                      if (!sameIds) {
+                        setProducts(savedProducts);
+                        setAddedStorehouseIds(savedProducts.map((product) => product.id));
+                        saveSellerProducts(savedProducts, finalEmail);
+                      }
                     }
                   }
-                }
-              } catch { /* Keep the current local catalog if the product sync is offline. */ }
+                } catch { /* Keep the current local catalog if the product sync is offline. */ }
+              }
             }
 
             if (typeof window !== 'undefined') {
@@ -585,6 +634,7 @@ export default function SellerDashboardPage() {
                   status: st,
                   idStatus: idSt,
                   isApproved: isNowApproved,
+                  accountSuspension: data.seller.accountSuspension || null,
                 })
               );
               if (finalEmail && activeEmail !== finalEmail) {
@@ -1128,6 +1178,8 @@ export default function SellerDashboardPage() {
     { id: 'settings', label: 'Shop Settings', icon: Settings },
   ];
 
+  const effectiveActiveNav = isAccountSuspended ? 'support' : activeNav;
+
   if (!navigationReady) return <div className="min-h-screen bg-white" aria-busy="true" />;
 
   const isInsufficientBalanceToast = Boolean(
@@ -1212,15 +1264,20 @@ export default function SellerDashboardPage() {
             </span>
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeNav === item.id;
+              const isActive = effectiveActiveNav === item.id;
+              const isRestricted = isAccountSuspended && item.id !== 'support';
 
               return (
                 <button
                   key={item.id}
                   data-seller-nav-item={item.id}
-                  onPointerEnter={() => prefetchSellerTab(item.id)}
-                  onFocus={() => prefetchSellerTab(item.id)}
+                  disabled={isRestricted}
+                  aria-disabled={isRestricted}
+                  title={isRestricted ? 'This feature is unavailable while your account is suspended.' : undefined}
+                  onPointerEnter={() => { if (!isRestricted) prefetchSellerTab(item.id); }}
+                  onFocus={() => { if (!isRestricted) prefetchSellerTab(item.id); }}
                   onClick={() => {
+                    if (isRestricted) return;
                     setActiveNav(item.id);
                     setIsMobileNavOpen(false);
                     notify(`Switched view to ${item.label}`);
@@ -1228,7 +1285,7 @@ export default function SellerDashboardPage() {
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all text-left group ${
                     isActive
                       ? 'bg-[#cca23b] text-[#071324] font-bold shadow-sm'
-                      : 'text-gray-300 hover:bg-[#11233b] hover:text-white'
+                      : isRestricted ? 'cursor-not-allowed text-gray-600 opacity-50' : 'text-gray-300 hover:bg-[#11233b] hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 truncate">
@@ -1290,16 +1347,18 @@ export default function SellerDashboardPage() {
         {/* Bottom Menu Items */}
         <div data-seller-footer-nav data-click-away-menu={isMobileNavOpen ? sellerMenuId : undefined} className="p-3.5 border-t border-gray-800/80 space-y-1">
           <button
+            disabled={isAccountSuspended}
             onClick={() => void viewMyPublicStore()}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
             <span>View my public store</span>
           </button>
 
           <button
+            disabled={isAccountSuspended}
             onClick={() => router.push('/shop')}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-gray-400" />
             <span>Back to shopping</span>
@@ -1325,6 +1384,11 @@ export default function SellerDashboardPage() {
         {/* TOP HEADER: MATCHING DARK NAVY COLOR PALETTE                   */}
         {/* ============================================================== */}
         <header data-seller-dashboard-header className="bg-[#071324] border-b border-[#162740] px-3 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-3 sticky top-0 z-30 shadow-md">
+          {accountSuspension && <div role="alert" className="order-first w-full rounded-xl border-2 border-rose-400 bg-rose-950 px-4 py-3 text-white shadow-lg">
+            <p className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide"><ShieldCheck className="h-4 w-4 text-rose-300" />Seller account suspended</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm"><strong>Reason:</strong> {accountSuspension.reason}</p>
+            <p className="mt-1 text-xs font-semibold text-emerald-200">Other seller features are disabled. Support remains available.</p>
+          </div>}
           {/* Store Info Left */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <div className="w-9 h-9 shrink-0 rounded-lg bg-[#cca23b] text-[#071324] font-bold text-sm flex items-center justify-center shadow-sm">
@@ -1335,7 +1399,12 @@ export default function SellerDashboardPage() {
                 <span className="max-w-full truncate font-bold text-sm text-white">
                   {merchantName}
                 </span>
-                {isApproved ? (
+                {isAccountSuspended ? (
+                  <span className="shrink-0 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-bold flex items-center gap-1 shadow-xs sm:px-2.5">
+                    <ShieldCheck className="w-3 h-3 text-rose-300" />
+                    <span>Suspended</span>
+                  </span>
+                ) : isApproved ? (
                   <span className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold flex items-center gap-1 shadow-xs sm:px-2.5">
                     <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                     <span>Approved Merchant</span>
@@ -1362,6 +1431,7 @@ export default function SellerDashboardPage() {
 
           {/* Header Controls Right */}
           <div data-seller-header-actions className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:gap-3">
+            {!isAccountSuspended && <>
             {/* Visit Storefront Button */}
             <button
               type="button"
@@ -1405,13 +1475,14 @@ export default function SellerDashboardPage() {
             >
               {merchantAvatar}
             </div>
+            </>}
           </div>
         </header>
 
         {/* Dynamic Content Views */}
         <main className="p-3 space-y-4 sm:p-6 sm:space-y-6">
           {/* ======================= VIEW 1: DASHBOARD (SELLER COMMAND CENTER) ======================= */}
-          {activeNav === 'dashboard' && (
+          {effectiveActiveNav === 'dashboard' && (
             <div className="space-y-5 animate-fadeIn">
               {/* Header Title Section: SELLER COMMAND CENTER */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1797,7 +1868,7 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 2: PRODUCT STOREHOUSE ======================= */}
-          {activeNav === 'storehouse' && (
+          {effectiveActiveNav === 'storehouse' && (
             <StorehouseCatalog
               remainingSlots={remainingSlots}
               planLimit={planLimit}
@@ -1811,7 +1882,7 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 3: MY PRODUCTS ======================= */}
-          {activeNav === 'my_products' && (
+          {effectiveActiveNav === 'my_products' && (
             <MyProductsCatalog
               onVisitStorehouse={() => setActiveNav('storehouse')}
               onAddMore={() => setActiveNav('storehouse')}
@@ -1839,11 +1910,11 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 3B: RETAIL MARKETPLACE LISTINGS ======================= */}
-          {activeNav === 'retail_listings' && <SellerRetailListingsPanel />}
-          {activeNav === 'retail_orders' && <SellerRetailOrdersPanel />}
+          {effectiveActiveNav === 'retail_listings' && <SellerRetailListingsPanel />}
+          {effectiveActiveNav === 'retail_orders' && <SellerRetailOrdersPanel />}
 
           {/* ======================= VIEW 4: ORDERS ======================= */}
-          {activeNav === 'orders' && (
+          {effectiveActiveNav === 'orders' && (
             <SellerOrdersPanel
               onOpenWallet={() => setActiveNav('wallet')}
               notify={notify}
@@ -1854,10 +1925,10 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 5: ORDER TRACKER ======================= */}
-          {activeNav === 'order_tracker' && <SellerOrderTrackerPanel orders={liveOrders} />}
+          {effectiveActiveNav === 'order_tracker' && <SellerOrderTrackerPanel orders={liveOrders} />}
 
           {/* ======================= VIEW 6: WALLET & EARNINGS ======================= */}
-          {activeNav === 'wallet' && (
+          {effectiveActiveNav === 'wallet' && (
             <SellerWalletPanel
               onOpenSupport={() => setActiveNav('support')}
               notify={notify}
@@ -1870,19 +1941,19 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 6: COMMISSION HISTORY ======================= */}
-          {activeNav === 'commission' && <SellerCommissionPanel orders={liveOrders} />}
+          {effectiveActiveNav === 'commission' && <SellerCommissionPanel orders={liveOrders} />}
 
           {/* ======================= VIEW 7: REFUNDS ======================= */}
-          {activeNav === 'refunds' && <SellerRefundsPanel notify={notify} />}
+          {effectiveActiveNav === 'refunds' && <SellerRefundsPanel notify={notify} />}
 
           {/* ======================= VIEW 8: DISPUTES ======================= */}
-          {activeNav === 'disputes' && <SellerDisputesPanel />}
+          {effectiveActiveNav === 'disputes' && <SellerDisputesPanel />}
 
           {/* ======================= VIEW 9: PRODUCT QUERIES ======================= */}
-          {activeNav === 'queries' && <SellerQueriesPanel products={products} notify={notify} />}
+          {effectiveActiveNav === 'queries' && <SellerQueriesPanel products={products} notify={notify} />}
 
           {/* ======================= VIEW 9: PACKAGE · TIER ======================= */}
-          {activeNav === 'package' && (
+          {effectiveActiveNav === 'package' && (
             <SellerPackagePanel
               sellerEmail={currentEmailRef.current || merchantProfile.email || ''}
               onOpenWallet={() => setActiveNav('wallet')}
@@ -1891,16 +1962,16 @@ export default function SellerDashboardPage() {
           )}
 
           {/* ======================= VIEW 10: NOTIFICATIONS ======================= */}
-          {activeNav === 'notifications' && <SellerNotificationsPanel notify={notify} />}
+          {effectiveActiveNav === 'notifications' && <SellerNotificationsPanel notify={notify} />}
 
           {/* ======================= VIEW 11: SUPPORT ======================= */}
-          {activeNav === 'support' && <SellerSupportPanel notify={notify} />}
+          {effectiveActiveNav === 'support' && <SellerSupportPanel notify={notify} />}
 
           {/* ======================= VIEW 12: VERIFICATION ======================= */}
-          {activeNav === 'verification' && <SellerVerificationPanel notify={notify} />}
+          {effectiveActiveNav === 'verification' && <SellerVerificationPanel notify={notify} />}
 
           {/* ======================= VIEW 13: SHOP SETTINGS ======================= */}
-          {activeNav === 'settings' && (
+          {effectiveActiveNav === 'settings' && (
             <SellerSettingsPanel
               onOpenNotifications={() => setActiveNav('notifications')}
               onShopSettingsSaved={setShopSettings}

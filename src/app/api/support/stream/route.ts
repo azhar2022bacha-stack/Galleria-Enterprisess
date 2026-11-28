@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   let sellerEmail = '';
 
   if (requestedRole === 'seller') {
-    sellerEmail = getRequestSellerEmail(req);
+    sellerEmail = getRequestSellerEmail(req, { allowSuspended: true });
     if (!sellerEmail) {
       return NextResponse.json({ error: 'Seller sign-in is required.' }, { status: 401 });
     }

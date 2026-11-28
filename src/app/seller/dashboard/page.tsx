@@ -386,7 +386,7 @@ export default function SellerDashboardPage() {
   const [accountSuspension, setAccountSuspension] = useState<{ status: 'suspended'; reason: string; updatedAt: string } | null>(null);
   const isAccountSuspended = accountSuspension?.status === 'suspended';
   useEffect(() => {
-    if (isAccountSuspended && activeNav !== 'support') setActiveNav('support');
+    if (isAccountSuspended && activeNav !== 'dashboard' && activeNav !== 'support') setActiveNav('dashboard');
   }, [isAccountSuspended, activeNav]);
   useEffect(() => {
     let active = true;
